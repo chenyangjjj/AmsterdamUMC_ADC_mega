@@ -1,0 +1,676 @@
+---
+title: "project_ADC_mega_main"
+---
+
+```{r,include=F}
+rm(list = ls())
+library(readxl)
+library(tidyverse)
+library(ggseg)
+library(compareGroups)
+library(ggpubr)
+library(compareGroups)
+library(sjPlot)
+library(naniar)
+library(bruceR)
+library(mice)
+library(readxl)
+library(ggh4x)
+```
+
+
+######## Fcuntions for atrophy pattern analysis
+```{r}
+
+analysis_glm_ATN_robust <- function(data,column_predictor){
+  
+  list=c("bankssts","caudal anterior cingulate","caudal middle frontal",
+      "cuneus","entorhinal","frontal pole","fusiform","inferior parietal",
+      "inferior temporal","insula","isthmus cingulate","lateral occipital",
+      "lateral orbitofrontal","lingual","medial orbitofrontal","middle temporal",
+      "paracentral","parahippocampal","pars opercularis","pars orbitalis",
+      "pars triangularis","pericalcarine","postcentral","posterior cingulate",
+      "precentral","precuneus","rostral anterior cingulate","rostral middle frontal",
+      "superior frontal","superior parietal","superior temporal","supramarginal",
+      "temporal pole","transverse temporal")
+  list2 = str_replace_all(list," ","")
+  CT_names <- c(str_c("lh_",list2,"_volume"),str_c("rh_",list2,"_volume"))
+  DTK_Labes_For_Plot = list
+  plot_data_L = as.data.frame(DTK_Labes_For_Plot)
+  colnames(plot_data_L)[1] = "region"
+  plot_data_L$hemi="left"
+  plot_data_R = as.data.frame(DTK_Labes_For_Plot)
+  colnames(plot_data_R)[1] = "region"
+  plot_data_R$hemi="right"
+  plot_data = rbind(plot_data_L,plot_data_R)
+  plot_data$area_label = CT_names
+  plot_data$Effect=NA
+  plot_data$Std=NA
+  plot_data$P_value=NA
+  attach(plot_data)
+  
+  for (im in 1:68) {
+    Region_AV1451_v1 = plot_data$area_label[im]
+    funtion_glm = as.formula(paste(Region_AV1451_v1,"~",column_predictor,"+amyloid_age+Sex+Edu+eTIV"))
+    results = MASS::rlm(funtion_glm,data =data)
+    
+    coef_table <- summary(results)$coefficients
+    results_df <- as.data.frame(coef_table)
+    colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+    results_df <- results_df %>% mutate(p_value = 2 * (1 - pnorm(abs(t_value))))
+  
+    plot_data$Effect[im] = results_df[2,1]
+    plot_data$Std[im] = results_df[2,2]
+    plot_data$P_value[im] = results_df[2,4]
+  }
+  
+  plot_data <- plot_data %>% 
+    mutate(highlight = ifelse(P_value < 0.05, "sig", "non_sig")) %>%
+    mutate(p_adjust = p.adjust(P_value, "fdr", n = length(P_value))) %>%
+    mutate(highlight_sig = ifelse(p_adjust < 0.05, "sig", "non_sig"))
+  
+  return(plot_data)
+}
+
+analysis_glm_ATN_robust_thickness <- function(data,column_predictor){
+  
+  list=c("bankssts","caudal anterior cingulate","caudal middle frontal",
+      "cuneus","entorhinal","frontal pole","fusiform","inferior parietal",
+      "inferior temporal","insula","isthmus cingulate","lateral occipital",
+      "lateral orbitofrontal","lingual","medial orbitofrontal","middle temporal",
+      "paracentral","parahippocampal","pars opercularis","pars orbitalis",
+      "pars triangularis","pericalcarine","postcentral","posterior cingulate",
+      "precentral","precuneus","rostral anterior cingulate","rostral middle frontal",
+      "superior frontal","superior parietal","superior temporal","supramarginal",
+      "temporal pole","transverse temporal")
+  list2 = str_replace_all(list," ","")
+  CT_names <- c(str_c("lh_",list2,"_thickness"),str_c("rh_",list2,"_thickness"))
+  DTK_Labes_For_Plot = list
+  plot_data_L = as.data.frame(DTK_Labes_For_Plot)
+  colnames(plot_data_L)[1] = "region"
+  plot_data_L$hemi="left"
+  plot_data_R = as.data.frame(DTK_Labes_For_Plot)
+  colnames(plot_data_R)[1] = "region"
+  plot_data_R$hemi="right"
+  plot_data = rbind(plot_data_L,plot_data_R)
+  plot_data$area_label = CT_names
+  plot_data$Effect=NA
+  plot_data$Std=NA
+  plot_data$P_value=NA
+  attach(plot_data)
+  
+  for (im in 1:68) {
+    Region_AV1451_v1 = plot_data$area_label[im]
+    funtion_glm = as.formula(paste(Region_AV1451_v1,"~",column_predictor,"+amyloid_age+Sex+Edu+eTIV"))
+    results = MASS::rlm(funtion_glm,data =data)
+    
+    coef_table <- summary(results)$coefficients
+    results_df <- as.data.frame(coef_table)
+    colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+    results_df <- results_df %>% mutate(p_value = 2 * (1 - pnorm(abs(t_value))))
+  
+    plot_data$Effect[im] = results_df[2,1]
+    plot_data$Std[im] = results_df[2,2]
+    plot_data$P_value[im] = results_df[2,4]
+  }
+  
+  plot_data <- plot_data %>% 
+    mutate(highlight = ifelse(P_value < 0.05, "sig", "non_sig")) %>%
+    mutate(p_adjust = p.adjust(P_value, "fdr", n = length(P_value))) %>%
+    mutate(highlight_sig = ifelse(P_value < 0.05, "sig", "non_sig"))
+  
+  return(plot_data)
+}
+
+
+analysis_glm_ATN_sub_robust <- function(data,column_predictor){
+  
+    list_regions=c("lh_Thalamus_volume","lh_Caudate_volume","lh_Putamen_volume","lh_Pallidum_volume","lh_Hippocampus_volume","lh_Amygdala_volume",
+              "lh_Accumbens_area_volume",
+              "rh_Thalamus_volume","rh_Caudate_volume","rh_Putamen_volume","rh_Pallidum_volume","rh_Hippocampus_volume","rh_Amygdala_volume",
+              "rh_Accumbens_area_volume")
+    list_regions_plots <- c("thalamus proper","caudate","putamen","pallidum","hippocampus","amygdala","accumbens",
+                            "thalamus proper","caudate","putamen","pallidum","hippocampus","amygdala","accumbens")
+    
+    list_regions_labels <- c("Thalamus","Caudate nucleus","Putamen","Pallidum","Hippocampus","Amygdala","Nucleus Accumbens",
+                            "Thalamus","Caudate nucleus","Putamen","Pallidum","Hippocampus","Amygdala","Nucleus Accumbens")
+    
+    plot_data = as.data.frame(list_regions)
+    colnames(plot_data)[1] = "region"
+    plot_data$hemi[1:7]="left"
+    plot_data$hemi[8:14]="right"
+    plot_data$area_label = plot_data$region
+    plot_data$region = list_regions_plots
+    plot_data$region_label = list_regions_labels
+    plot_data$Effect=NA
+    plot_data$Std=NA
+    plot_data$P_value=NA
+    attach(plot_data)
+    
+    PRS_cell_type <- column_predictor
+    
+    for (im in 1:14) {
+      Region_AV1451_v1 = plot_data$area_label[im]
+      funtion_glm = as.formula(paste(Region_AV1451_v1,"~",PRS_cell_type,"+amyloid_DATEAFN+Sex+Edu+eTIV"))
+      results = MASS::rlm(funtion_glm,data =data)
+      
+      coef_table <- summary(results)$coefficients
+      results_df <- as.data.frame(coef_table)
+      colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+      results_df <- results_df %>% mutate(p_value = 2 * (1 - pnorm(abs(t_value))))
+      
+      plot_data$Effect[im] = results_df[2,1]
+      plot_data$Std[im] = results_df[2,2]
+      plot_data$P_value[im] = results_df[2,4]
+    }
+    
+    plot_data <- plot_data %>% 
+      mutate(highlight = ifelse(P_value < 0.05, "sig", "non_sig")) %>%
+      mutate(p_adjust = p.adjust(P_value, "fdr", n = length(P_value))) %>%
+      mutate(highlight_sig = ifelse(P_value < 0.05, "sig", "non_sig"))
+    
+    return(plot_data)
+}
+
+
+analysis_glm_ATN_sub <- function(data,column_predictor){
+  
+    list_regions=c("lh_Thalamus_volume","lh_Caudate_volume","lh_Putamen_volume","lh_Pallidum_volume","lh_Hippocampus_volume","lh_Amygdala_volume",
+              "lh_Accumbens_area_volume",
+              "rh_Thalamus_volume","rh_Caudate_volume","rh_Putamen_volume","rh_Pallidum_volume","rh_Hippocampus_volume","rh_Amygdala_volume",
+              "rh_Accumbens_area_volume")
+    list_regions_plots <- c("thalamus proper","caudate","putamen","pallidum","hippocampus","amygdala","accumbens",
+                            "thalamus proper","caudate","putamen","pallidum","hippocampus","amygdala","accumbens")
+    
+    list_regions_labels <- c("Thalamus","Caudate nucleus","Putamen","Pallidum","Hippocampus","Amygdala","Nucleus Accumbens",
+                            "Thalamus","Caudate nucleus","Putamen","Pallidum","Hippocampus","Amygdala","Nucleus Accumbens")
+    
+    plot_data = as.data.frame(list_regions)
+    colnames(plot_data)[1] = "region"
+    plot_data$hemi[1:7]="left"
+    plot_data$hemi[8:14]="right"
+    plot_data$area_label = plot_data$region
+    plot_data$region = list_regions_plots
+    plot_data$region_label = list_regions_labels
+    plot_data$Effect=NA
+    plot_data$P_value=NA
+    attach(plot_data)
+    
+    PRS_cell_type <- column_predictor
+    
+    for (im in 1:14) {
+      Region_AV1451_v1 = plot_data$area_label[im]
+      funtion_glm = paste(Region_AV1451_v1,"~",PRS_cell_type,"+amyloid_DATEAFN+Sex+Edu+eTIV")
+      results = glm(funtion_glm,family = gaussian,data =data)
+      x = summary(results)
+      CI <- confint(results)
+      P_values_GLM = x$coefficients[2,3:4]
+      plot_data$Effect[im] = x$coefficients[2,1]
+      plot_data$P_value[im] = x$coefficients[2,4]
+      plot_data$ci_lower[im] = CI[2,1]
+      plot_data$ci_upper[im] = CI[2,2]
+    }
+    
+    plot_data <- plot_data %>% 
+      mutate(highlight = ifelse(P_value < 0.05, "sig", "non_sig")) %>%
+      mutate(p_adjust = p.adjust(P_value, "fdr", n = length(P_value))) %>%
+      mutate(highlight_sig = ifelse(p_adjust < 0.05, "sig", "non_sig"))
+    
+    return(plot_data)
+}
+
+
+create_atrophy_maps = function(data1,data2){
+  
+  colors <- c("#EB482F", "#F3E66C","white", "#7CCEDE", "#2D4CA0")
+  
+  plot1 <- ggseg(.data = data1,atlas = "dk",position="stacked",mapping = aes(fill = Effect, colour = highlight,size = highlight),
+                 show.legend = T) +
+          scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1.2,-0.6,0,0.6,1.2)),limits = c(-1.2,1.2))+
+          scale_colour_manual(values = c("sig" = "black", "non_sig" = "grey")) +
+          scale_size_manual(values = c("sig" = 0.6, "non_sig" = 0.2)) +
+          theme_void() +
+          theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),legend.text=element_text(size=6),
+                legend.position = "none")+
+          theme(axis.line = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.border = element_blank(),
+                panel.background = element_blank())
+  
+  plot2 <- ggseg(.data = data2,atlas = "aseg",view = "coronal",mapping = aes(fill = Effect, colour = highlight,size = highlight),size=1,
+                 show.legend = F) +
+        scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1.2,-0.6,0,0.6,1.2)),limits = c(-1.2,1.2))+
+        scale_colour_manual(values = c("sig" = "black", "non_sig" = "grey")) +
+        scale_size_manual(values = c("sig" = 0.6, "non_sig" = 0.2)) +
+        theme_void() +
+        theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),legend.text=element_text(size=6),
+              legend.position = "none")+
+        theme(axis.line = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.border = element_blank(),
+              panel.background = element_blank())
+  
+  plot_data_analysis = ggarrange(plot1,plot2,ncol = 1,nrow = 2,heights = c(2,1))
+  
+  return(plot_data_analysis)
+}
+
+
+create_atrophy_maps_correction = function(data1,data2){
+
+  colors <- c("#EB482F", "#F3E66C","white", "#7CCEDE", "#2D4CA0")
+  
+  plot1 <- ggseg(.data = data1,atlas = "dk",position="stacked",mapping = aes(fill = Effect, colour = highlight_sig,size = highlight_sig),
+                 show.legend = T) +
+          scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1.5,-0.6,-0,0.6,1)),limits = c(-1.5,1))+
+          scale_colour_manual(values = c("sig" = "black", "non_sig" = "grey")) +
+          scale_size_manual(values = c("sig" = 0.6, "non_sig" = 0.2)) +
+          theme_void() +
+          theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),legend.text=element_text(size=6),
+                legend.position = "none")+
+          theme(axis.line = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.border = element_blank(),
+                panel.background = element_blank())
+  
+  plot2 <- ggseg(.data = data2,atlas = "aseg",view = "coronal",mapping = aes(fill = Effect, colour = highlight_sig,size = highlight_sig),
+                 show.legend = F) +
+        scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1.5,-0.6,-0,0.6,1)),limits = c(-1.5,1))+
+        scale_colour_manual(values = c("sig" = "black", "non_sig" = "grey")) +
+        scale_size_manual(values = c("sig" = 0.6, "non_sig" = 0.2)) +
+        theme_void() +
+        theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),legend.text=element_text(size=6),
+              legend.position = "none")+
+        theme(axis.line = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.border = element_blank(),
+              panel.background = element_blank())
+  
+  plot_data_analysis = ggarrange(plot1,plot2,ncol = 1,nrow = 2,heights = c(1.5,1))
+  
+  return(plot_data_analysis)
+}
+
+
+
+
+create_atrophy_maps_cortical = function(data1){
+  
+  colors <- c("#EB482F", "#F3E66C","white", "#7CCEDE", "#2D4CA0")
+  
+  plot1 <- ggseg(.data = data1,atlas = "dk",position="stacked",mapping = aes(fill = Effect, colour = highlight,size = highlight),
+                 show.legend = T) +
+          scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1.2,-0.6,0,0.6,1.2)),limits = c(-1.2,1.2))+
+          scale_colour_manual(values = c("sig" = "black", "non_sig" = "grey")) +
+          scale_size_manual(values = c("sig" = 0.6, "non_sig" = 0.2)) +
+          theme_void() +
+          theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),legend.text=element_text(size=6),
+                legend.position = "none")+
+          theme(axis.line = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.border = element_blank(),
+                panel.background = element_blank())
+  
+  return(plot1)
+}
+```
+
+
+
+######## Categorical variables
+```{r}
+load("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/C1_domains_Annebet_no_imputation.Rdata")
+data_ADC_analysis_v1 <- C1_domains_Annebet
+scale_cols <- grep("(_thickness$|_volume$)", names(data_ADC_analysis_v1), value = TRUE)
+data_ADC_analysis_v1[scale_cols] <- lapply(
+  data_ADC_analysis_v1[scale_cols],
+  function(x) as.numeric(scale(x))
+)
+table(data_ADC_analysis_v1$D_diagnosis,data_ADC_analysis_v1$amyloid_status)
+
+data_N_analysis <- data_ADC_analysis_v1 %>% 
+  filter(!(D_diagnosis == "SCD"& amyloid_status == "A+")) %>%
+  filter(!(D_diagnosis == "MCI")) %>%
+  filter(!(D_diagnosis == "AD"& amyloid_status == "A-")) %>%
+  
+  mutate(Diagnosis_N = case_when(
+    D_diagnosis == "AD" & amyloid_status == "A+" ~ "AD(A+)",
+    D_diagnosis == "FTD" & amyloid_status == "A-" ~ "FTD(A-)",
+    D_diagnosis == "FTD" & amyloid_status == "A+" ~ "FTD(A+)",
+    D_diagnosis == "DLB" & amyloid_status == "A-" ~ "DLB(A-)",
+    D_diagnosis == "DLB" & amyloid_status == "A+" ~ "DLB(A+)",
+  )) %>%
+  filter(!I_ID == 3329)
+table(data_N_analysis$D_diagnosis,data_N_analysis$amyloid_status)
+
+
+MRI_IDPs_mean <- names(data_N_analysis) %>% keep(~ grepl("_mean", .)) %>% {.[-43]}
+
+
+fwrite(data_N_analysis %>% dplyr::select(I_ID,D_diagnosis) %>% dplyr::filter(D_diagnosis == "DLB"),
+  "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/rebuttal_files/IID_DLB.txt",sep = "\t",row.names = F)
+```
+
+
+
+# AD/FTD/DLB atrophy pattern + robust linear regression
+```{r}
+data_N_A_analysis_AD_v1 <- data_ADC_analysis_v1 %>%
+  filter(D_diagnosis %in% c("SCD","AD")) %>%
+  mutate(D_diagnosis = factor(D_diagnosis,c("SCD","AD")))
+
+data_N_A_analysis_FTD_v1 <- data_ADC_analysis_v1 %>%
+  filter(D_diagnosis %in% c("SCD","FTD")) %>%
+  mutate(D_diagnosis = factor(D_diagnosis,c("SCD","FTD")))
+
+data_N_A_analysis_DLB_v1 <- data_ADC_analysis_v1 %>%
+  filter(D_diagnosis %in% c("SCD","DLB")) %>%
+  mutate(D_diagnosis = factor(D_diagnosis,c("SCD","DLB")))
+
+re_AD_v1 = analysis_glm_ATN_robust(data_N_A_analysis_AD_v1,"D_diagnosis") 
+re_sub_AD_v1 = analysis_glm_ATN_sub_robust(data_N_A_analysis_AD_v1,"D_diagnosis")
+
+re_FTD_v1 = analysis_glm_ATN_robust(data_N_A_analysis_FTD_v1,"D_diagnosis") 
+re_sub_FTD_v1 = analysis_glm_ATN_sub_robust(data_N_A_analysis_FTD_v1,"D_diagnosis")
+
+re_DLB_v1 = analysis_glm_ATN_robust(data_N_A_analysis_DLB_v1,"D_diagnosis") 
+re_sub_DLB_v1 = analysis_glm_ATN_sub_robust(data_N_A_analysis_DLB_v1,"D_diagnosis")
+
+AD_atrophy_maps_v1 = create_atrophy_maps(re_AD_v1,re_sub_AD_v1)
+FTD_atrophy_maps_v2 = create_atrophy_maps(re_FTD_v1,re_sub_FTD_v1)
+DLB_atrophy_maps_v3 = create_atrophy_maps(re_DLB_v1,re_sub_DLB_v1)
+
+ALL_atrophy <- ggarrange(AD_atrophy_maps_v1,FTD_atrophy_maps_v2,DLB_atrophy_maps_v3,ncol = 3,nrow = 1,common.legend = TRUE)
+
+ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/Figure2/ALL_atrophy_robust.pdf",ALL_atrophy,width = 12,height = 4,units = "in",dpi = 300)
+
+
+
+re_excel_1 <- re_sub_AD_v1 %>% dplyr::select(-region_label) %>%
+  bind_rows(re_AD_v1) %>% mutate(Comparison = "AD vs SCD") %>%
+  dplyr::select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+writexl::write_xlsx(re_excel_1,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/Figure2/re_excel_AD.xlsx")
+
+re_excel_2 <- re_sub_FTD_v1 %>% dplyr::select(-region_label) %>%
+  bind_rows(re_FTD_v1) %>% mutate(Comparison = "FTD vs SCD") %>%
+  dplyr::select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+writexl::write_xlsx(re_excel_2,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/Figure2/re_excel_FTD.xlsx")
+
+re_excel_3 <- re_sub_DLB_v1 %>% dplyr::select(-region_label) %>%
+  bind_rows(re_DLB_v1) %>% mutate(Comparison = "DLB vs SCD") %>%
+  dplyr::select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+writexl::write_xlsx(re_excel_3,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/Figure2/re_excel_DLB.xlsx")
+
+```
+
+
+# FTD/DLB atrophy maps, without correction, Robust linear regression
+```{r}
+
+data_N_A_analysis_FTD_v1 <- data_N_analysis %>%
+  filter(Diagnosis_N %in% c("AD(A+)","FTD(A-)")) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("AD(A+)","FTD(A-)")))
+
+data_N_A_analysis_FTD_v2 <- data_N_analysis %>%
+  filter(Diagnosis_N %in% c("AD(A+)","FTD(A+)")) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("AD(A+)","FTD(A+)")))
+
+data_N_A_analysis_FTD_v3 <- data_N_analysis %>%
+  filter(D_diagnosis %in% c("FTD")) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("FTD(A-)","FTD(A+)")))
+
+re_FTD_v1 = analysis_glm_ATN_robust(data_N_A_analysis_FTD_v1,"Diagnosis_N")
+re_sub_FTD_v1 = analysis_glm_ATN_sub_robust(data_N_A_analysis_FTD_v1,"Diagnosis_N")
+re_FTD_v2 = analysis_glm_ATN_robust(data_N_A_analysis_FTD_v2,"Diagnosis_N")
+re_sub_FTD_v2 = analysis_glm_ATN_sub_robust(data_N_A_analysis_FTD_v2,"Diagnosis_N")
+re_FTD_v3 = analysis_glm_ATN_robust(data_N_A_analysis_FTD_v3,"Diagnosis_N")
+re_sub_FTD_v3 = analysis_glm_ATN_sub_robust(data_N_A_analysis_FTD_v3,"Diagnosis_N")
+FTD_atrophy_maps_v1 = create_atrophy_maps(re_FTD_v1,re_sub_FTD_v1)
+FTD_atrophy_maps_v2 = create_atrophy_maps(re_FTD_v2,re_sub_FTD_v2)
+FTD_atrophy_maps_v3 = create_atrophy_maps(re_FTD_v3,re_sub_FTD_v3)
+FTD_atrophy <- ggarrange(FTD_atrophy_maps_v1,FTD_atrophy_maps_v2,FTD_atrophy_maps_v3,ncol = 3,nrow = 1,legend = NULL,common.legend = FALSE)
+
+# re_FTD_v1_excel <- bind_rows(re_FTD_v1,re_sub_FTD_v1) %>% mutate(Comparison = "FTD(A-) vs AD") %>% 
+#   select(region,hemi,area_label,Effect,P_value,p_adjust,Comparison) %>%
+#   mutate(Effect = signif(Effect, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+# re_FTD_v2_excel <- bind_rows(re_FTD_v2,re_sub_FTD_v2) %>% mutate(Comparison = "FTD(A+) vs AD") %>% 
+#   select(region,hemi,area_label,Effect,P_value,p_adjust,Comparison) %>%
+#   mutate(Effect = signif(Effect, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+re_FTD_v3_excel <- bind_rows(re_FTD_v3,re_sub_FTD_v3) %>% mutate(Comparison = "FTD(A+) vs FTD(A-)") %>%
+  select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+# 
+# writexl::write_xlsx(re_FTD_v1_excel,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/excels/re_FTD_v1_excel.xlsx")
+# writexl::write_xlsx(re_FTD_v2_excel,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/excels/re_FTD_v2_excel.xlsx")
+writexl::write_xlsx(re_FTD_v3_excel,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/excels/re_FTD_v3_excel.xlsx")
+
+
+#### DLB atrophy
+data_N_A_analysis_DLB_v1 <- data_N_analysis %>%
+  filter(Diagnosis_N %in% c("AD(A+)","DLB(A-)")) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("AD(A+)","DLB(A-)")))
+data_N_A_analysis_DLB_v2 <- data_N_analysis %>%
+  filter(Diagnosis_N %in% c("AD(A+)","DLB(A+)")) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("AD(A+)","DLB(A+)")))
+data_N_A_analysis_DLB_v3 <- data_N_analysis %>%
+  filter(!D_diagnosis %in% c("AD","FTD")) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("DLB(A-)","DLB(A+)")))
+
+re_DLB_v1 = analysis_glm_ATN_robust(data_N_A_analysis_DLB_v1,"Diagnosis_N")
+re_sub_DLB_v1 = analysis_glm_ATN_sub_robust(data_N_A_analysis_DLB_v1,"Diagnosis_N")
+
+re_DLB_v2 = analysis_glm_ATN_robust(data_N_A_analysis_DLB_v2,"Diagnosis_N")
+re_sub_DLB_v2 = analysis_glm_ATN_sub_robust(data_N_A_analysis_DLB_v2,"Diagnosis_N")
+
+re_DLB_v3 = analysis_glm_ATN_robust(data_N_A_analysis_DLB_v3,"Diagnosis_N")
+re_sub_DLB_v3 = analysis_glm_ATN_sub_robust(data_N_A_analysis_DLB_v3,"Diagnosis_N")
+
+DLB_atrophy_maps_v1 = create_atrophy_maps(re_DLB_v1,re_sub_DLB_v1)
+DLB_atrophy_maps_v2 = create_atrophy_maps(re_DLB_v2,re_sub_DLB_v2)
+DLB_atrophy_maps_v3 = create_atrophy_maps(re_DLB_v3,re_sub_DLB_v3)
+
+DLB_atrophy <- ggarrange(DLB_atrophy_maps_v1,DLB_atrophy_maps_v2,DLB_atrophy_maps_v3,ncol = 3,nrow = 1,common.legend = TRUE)
+
+
+ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/plots_atrophy/plots_atrophy_FTD_robust.pdf",FTD_atrophy_maps_v3,width = 4,height = 4,units = "in",dpi = 300)
+ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/plots_atrophy/plots_atrophy_DLB_robust.pdf",DLB_atrophy_maps_v3,width = 4,height = 4,units = "in",dpi = 300)
+
+
+# re_DLB_v1_excel <- bind_rows(re_DLB_v1,re_sub_DLB_v1) %>% mutate(Comparison = "DLB(A-) vs AD") %>% 
+#   select(region,hemi,area_label,Effect,P_value,p_adjust,Comparison) %>%
+#   mutate(Effect = signif(Effect, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+# re_DLB_v2_excel <- bind_rows(re_DLB_v2,re_sub_DLB_v2) %>% mutate(Comparison = "DLB(A+) vs AD") %>% 
+#   select(region,hemi,area_label,Effect,P_value,p_adjust,Comparison) %>%
+#   mutate(Effect = signif(Effect, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+re_DLB_v3_excel <- bind_rows(re_DLB_v3,re_sub_DLB_v3) %>% mutate(Comparison = "DLB(A+) vs DLB(A-)") %>%
+  select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+# writexl::write_xlsx(re_DLB_v1_excel,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/excels/re_DLB_v1_excel.xlsx")
+# writexl::write_xlsx(re_DLB_v2_excel,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/excels/re_DLB_v2_excel.xlsx")
+writexl::write_xlsx(re_DLB_v3_excel,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/excels/re_DLB_v3_excel.xlsx")
+```
+
+
+ # NEW CELL: AD/FTD/DLB cortical thickness results 
+```{r cortical_thickness_results_new_cell}
+
+load("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/C1_domains_Annebet_no_imputation.Rdata")
+data_ADC_analysis_v1 <- C1_domains_Annebet
+
+scale_cols <- grep("(_thickness$|_volume$)", names(data_ADC_analysis_v1), value = TRUE)
+data_ADC_analysis_v1[scale_cols] <- lapply(
+  data_ADC_analysis_v1[scale_cols],
+  function(x) as.numeric(scale(x))
+)
+
+table(data_ADC_analysis_v1$D_diagnosis,data_ADC_analysis_v1$amyloid_status)
+
+data_N_A_analysis_AD_v1 <- data_ADC_analysis_v1 %>%
+  filter(D_diagnosis %in% c("SCD","AD")) %>%
+  mutate(D_diagnosis = factor(D_diagnosis,c("SCD","AD")))
+
+data_N_A_analysis_FTD_v1 <- data_ADC_analysis_v1 %>%
+  filter(D_diagnosis %in% c("SCD","FTD")) %>%
+  mutate(D_diagnosis = factor(D_diagnosis,c("SCD","FTD")))
+
+data_N_A_analysis_DLB_v1 <- data_ADC_analysis_v1 %>%
+  filter(D_diagnosis %in% c("SCD","DLB")) %>%
+  mutate(D_diagnosis = factor(D_diagnosis,c("SCD","DLB")))
+
+
+re_AD_thickness_newcell <- analysis_glm_ATN_robust_thickness(data_N_A_analysis_AD_v1,"D_diagnosis")
+re_FTD_thickness_newcell <- analysis_glm_ATN_robust_thickness(data_N_A_analysis_FTD_v1,"D_diagnosis")
+re_DLB_thickness_newcell <- analysis_glm_ATN_robust_thickness(data_N_A_analysis_DLB_v1,"D_diagnosis")
+
+re_AD_thickness_newcell_sub = analysis_glm_ATN_sub_robust(data_N_A_analysis_AD_v1,"D_diagnosis")
+re_FTD_thickness_newcell_sub <- analysis_glm_ATN_sub_robust(data_N_A_analysis_FTD_v1,"D_diagnosis")
+re_DLB_thickness_newcell_sub <- analysis_glm_ATN_sub_robust(data_N_A_analysis_DLB_v1,"D_diagnosis")
+
+AD_thickness_maps_newcell <- create_atrophy_maps_correction(re_AD_thickness_newcell,re_AD_thickness_newcell_sub)
+FTD_thickness_maps_newcell <- create_atrophy_maps_correction(re_FTD_thickness_newcell,re_FTD_thickness_newcell_sub)
+DLB_thickness_maps_newcell <- create_atrophy_maps_correction(re_DLB_thickness_newcell,re_DLB_thickness_newcell_sub)
+
+
+ALL_thickness_newcell <- ggarrange(
+  AD_thickness_maps_newcell,
+  FTD_thickness_maps_newcell,
+  DLB_thickness_maps_newcell,
+  ncol = 3, nrow = 1, common.legend = FALSE 
+)
+
+ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/S_Figure6/ALL_thickness_robust_newcell.pdf",ALL_thickness_newcell,width = 12,height = 4,units = "in",dpi = 300)
+
+re_excel_AD_thickness_newcell <- re_AD_thickness_newcell %>%
+  mutate(Comparison = "AD vs SCD") %>%
+  dplyr::select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+
+re_excel_AD_thickness_newcell_sub <- re_AD_thickness_newcell_sub %>%
+  mutate(Comparison = "AD vs SCD") %>%
+  dplyr::select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+
+re_excel_AD_thickness_newcell_ALL = bind_rows(re_excel_AD_thickness_newcell,re_excel_AD_thickness_newcell_sub)
+
+writexl::write_xlsx(re_excel_AD_thickness_newcell_ALL,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/S_Figure6/re_excel_AD_thickness_newcell.xlsx")
+
+
+
+re_excel_FTD_thickness_newcell <- re_FTD_thickness_newcell %>%
+  mutate(Comparison = "FTD vs SCD") %>%
+  dplyr::select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+
+re_excel_FTD_thickness_newcell_sub <- re_FTD_thickness_newcell_sub %>%
+  mutate(Comparison = "FTD vs SCD") %>%
+  dplyr::select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+
+re_excel_FTD_thickness_newcell_ALL = bind_rows(re_excel_FTD_thickness_newcell,re_excel_FTD_thickness_newcell_sub)
+
+writexl::write_xlsx(re_excel_FTD_thickness_newcell_ALL,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/S_Figure6/re_excel_FTD_thickness_newcell_subtypes.xlsx")
+
+
+re_excel_DLB_thickness_newcell <- re_DLB_thickness_newcell %>%
+  mutate(Comparison = "DLB vs SCD") %>%
+  dplyr::select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+
+re_excel_DLB_thickness_newcell_sub <- re_DLB_thickness_newcell_sub %>%
+  mutate(Comparison = "DLB vs SCD") %>%
+  dplyr::select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+
+re_excel_DLB_thickness_newcell_ALL = bind_rows(re_excel_DLB_thickness_newcell,re_excel_DLB_thickness_newcell_sub)
+
+writexl::write_xlsx(re_excel_DLB_thickness_newcell_ALL,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/S_Figure6/re_excel_DLB_thickness_newcell.xlsx")
+```
+
+
+
+# NEW CELL: FTD/DLB cortical thickness maps, without correction, Robust linear regression
+```{r cortical_thickness_ftd_dlb_without_correction}
+
+#### FTD thickness
+data_N_A_analysis_FTD_thick_v3 <- data_N_analysis %>%
+  filter(D_diagnosis %in% c("FTD")) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("FTD(A-)","FTD(A+)")))
+
+re_FTD_thick_v3 <- analysis_glm_ATN_robust_thickness(data_N_A_analysis_FTD_thick_v3,"Diagnosis_N")
+re_FTD_thick_v3_sub <- analysis_glm_ATN_sub_robust(data_N_A_analysis_FTD_thick_v3,"Diagnosis_N")
+FTD_thickness_maps_v3 <- create_atrophy_maps_correction(re_FTD_thick_v3,re_FTD_thick_v3_sub)
+
+re_FTD_thick_v3_excel <- re_FTD_thick_v3 %>% mutate(Comparison = "FTD(A+) vs FTD(A-)") %>%
+  dplyr::select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+
+re_FTD_thick_v3_sub_excel <- re_FTD_thick_v3_sub %>% mutate(Comparison = "FTD(A+) vs FTD(A-)") %>%
+  dplyr::select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+
+re_excel_FTD_thickness_newcell_ALL = bind_rows(re_FTD_thick_v3_excel,re_FTD_thick_v3_sub_excel)
+
+writexl::write_xlsx(re_excel_FTD_thickness_newcell_ALL,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/S_Figure6/re_excel_FTD_thickness_newcell_subtypes.xlsx")
+
+
+ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/S_Figure6/plots_thickness_FTD_robust.pdf",
+  FTD_thickness_maps_v3,width = 4,height = 4,units = "in",dpi = 300)
+
+
+
+#### DLB thickness
+data_N_A_analysis_DLB_thick_v3 <- data_N_analysis %>%
+  filter(D_diagnosis %in% c("DLB")) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("DLB(A-)","DLB(A+)")))
+
+re_DLB_thick_v3 <- analysis_glm_ATN_robust_thickness(data_N_A_analysis_DLB_thick_v3,"Diagnosis_N")
+re_DLB_thick_v3_sub <- analysis_glm_ATN_sub_robust(data_N_A_analysis_DLB_thick_v3,"Diagnosis_N")
+DLB_thickness_maps_v3 <- create_atrophy_maps_correction(re_DLB_thick_v3,re_DLB_thick_v3_sub)
+
+re_DLB_thick_v3_excel <- re_DLB_thick_v3 %>% mutate(Comparison = "DLB(A+) vs DLB(A-)") %>%
+  dplyr::select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+
+re_DLB_thick_v3_sub_excel <- re_DLB_thick_v3_sub %>% mutate(Comparison = "DLB(A+) vs DLB(A-)") %>%
+  dplyr::select(region,hemi,area_label,Effect,Std,P_value,p_adjust,Comparison) %>%
+  mutate(Effect = signif(Effect, 2),Std = signif(Std, 2),P_value = signif(P_value, 2),p_adjust = signif(p_adjust, 2))
+
+
+re_excel_DLB_thickness_newcell_ALL = bind_rows(re_DLB_thick_v3_excel,re_DLB_thick_v3_sub_excel)
+
+writexl::write_xlsx(re_excel_DLB_thickness_newcell_ALL,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/S_Figure6/re_excel_DLB_thickness_newcell_subtypes.xlsx")
+
+ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/S_Figure6/plots_thickness_DLB_robust.pdf",
+  DLB_thickness_maps_v3,width = 4,height = 4,units = "in",dpi = 300)
+```
+
+
+
+# legend for plots
+```{r}
+colors <- c("#EB482F", "#F3E66C","white", "#7CCEDE", "#2D4CA0")
+
+legend_plot = ggseg(.data = re_AD_thickness_newcell,atlas = "dk",position="stacked",mapping=aes(fill=Effect),colour="black",size=.3,show.legend = T) +
+          scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1.5,-0.6,-0,0.6,1)),limits = c(-1.5,1),na.value = "#D6D6D7")+
+          theme_void() +
+          theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),
+                legend.text=element_text(size=6),
+                legend.position = "bottom",
+                legend.key.width = unit(2, "cm"),
+                legend.key.height = unit(0.8, "cm"))+
+          theme(axis.line = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.border = element_blank(),
+                panel.background = element_blank())
+
+ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/S_Figure6/legend.pdf",legend_plot,width = 8,height = 8,units = "in",dpi = 300)
+```

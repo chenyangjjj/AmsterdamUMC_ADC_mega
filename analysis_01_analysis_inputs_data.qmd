@@ -1,0 +1,2047 @@
+---
+title: "project_ADC_mega_main"
+---
+
+
+```{r,include=F}
+rm(list = ls())
+library(readxl)
+library(tidyverse)
+library(ggseg)
+library(compareGroups)
+library(ggpubr)
+library(compareGroups)
+library(sjPlot)
+library(naniar)
+library(bruceR)
+library(mice)
+library(psych)
+library(dplyr)
+library(broom)
+library(ggplot2)
+library(scales)   # for pvalue() (or use your own formatter)
+```
+
+
+# Data loading
+```{r,include=FALSE}
+path_data = "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data"
+Freesurfer_output_718 = read_xlsx(str_c(path_data,"/data_request/718_Freesurfer_output_20250619.xlsx"))
+data_718_Baseline = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "Baseline") # 9749
+data_718_Diagnosis = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "Diagnosis") # 9749
+data_718_MRI = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V3.xlsx"),sheet = "MRI",col_types = c("numeric","date","text","text","text","text","text","text","text","text"))
+
+data_718_CSF = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "CSF")
+data_718_PET = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "PET")
+data_718_NPO = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "NPO")
+data_718_NPI = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "NPI")
+data_718_MMSE = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "MMSE")
+
+data_718_Diagnosis$D_dat = str_split(data_718_Diagnosis$D_dat," ",simplify = TRUE)[,1]
+
+data_718_MRI$M_dat = str_split(data_718_MRI$M_dat," ",simplify = TRUE)[,1]
+data_718_MRI$M_age = as.numeric(data_718_MRI$M_age)
+
+data_718_CSF$L_DATEAFN = str_split(data_718_CSF$L_DATEAFN," ",simplify = TRUE)[,1]
+data_718_CSF$L_age = as.numeric(data_718_CSF$L_age)
+
+data_718_PET$PT_date = str_split(data_718_PET$PT_date," ",simplify = TRUE)[,1]
+data_718_NPO$N_date = str_split(data_718_NPO$N_date," ",simplify = TRUE)[,1]
+data_718_NPO$N_age = as.numeric(data_718_NPO$N_age)
+
+data_718_MMSE$V_dat = str_split(data_718_MMSE$V_dat," ",simplify = TRUE)[,1]
+```
+
+
+
+# Functions for analysis
+```{r}
+analysis_glm_ATN <- function(data,column_predictor){
+  
+  list=c("bankssts","caudal anterior cingulate","caudal middle frontal",
+      "cuneus","entorhinal","frontal pole","fusiform","inferior parietal",
+      "inferior temporal","insula","isthmus cingulate","lateral occipital",
+      "lateral orbitofrontal","lingual","medial orbitofrontal","middle temporal",
+      "paracentral","parahippocampal","pars opercularis","pars orbitalis",
+      "pars triangularis","pericalcarine","postcentral","posterior cingulate",
+      "precentral","precuneus","rostral anterior cingulate","rostral middle frontal",
+      "superior frontal","superior parietal","superior temporal","supramarginal",
+      "temporal pole","transverse temporal")
+  list2 = str_replace_all(list," ","")
+  CT_names <- c(str_c("lh_",list2,"_thickness"),str_c("rh_",list2,"_thickness"))
+  DTK_Labes_For_Plot = list
+  plot_data_L = as.data.frame(DTK_Labes_For_Plot)
+  colnames(plot_data_L)[1] = "region"
+  plot_data_L$hemi="left"
+  plot_data_R = as.data.frame(DTK_Labes_For_Plot)
+  colnames(plot_data_R)[1] = "region"
+  plot_data_R$hemi="right"
+  plot_data = rbind(plot_data_L,plot_data_R)
+  plot_data$area_label = CT_names
+  plot_data$Effect=NA
+  plot_data$P_value=NA
+  attach(plot_data)
+  
+  for (im in 1:68) {
+    Region_AV1451_v1 = plot_data$area_label[im]
+    funtion_glm = paste(Region_AV1451_v1,"~",column_predictor,"+amyloid_age+Sex+Edu")
+    results = glm(funtion_glm,family = gaussian,data =data)
+    x = summary(results)
+    P_values_GLM = x$coefficients[2,3:4]
+    plot_data$Effect[im] = x$coefficients[2,1]
+    plot_data$P_value[im] = x$coefficients[2,4]
+  }
+  
+  plot_data <- plot_data %>% 
+    mutate(highlight = ifelse(P_value < 0.05, "sig", "non_sig")) %>%
+    mutate(p_adjust = p.adjust(P_value, "fdr", n = length(P_value))) %>%
+    mutate(highlight_sig = ifelse(p_adjust < 0.05, "sig", "non_sig"))
+  
+  return(plot_data)
+}
+
+analysis_glm_ATN_volume <- function(data,column_predictor){
+  
+  list=c("bankssts","caudal anterior cingulate","caudal middle frontal",
+      "cuneus","entorhinal","frontal pole","fusiform","inferior parietal",
+      "inferior temporal","insula","isthmus cingulate","lateral occipital",
+      "lateral orbitofrontal","lingual","medial orbitofrontal","middle temporal",
+      "paracentral","parahippocampal","pars opercularis","pars orbitalis",
+      "pars triangularis","pericalcarine","postcentral","posterior cingulate",
+      "precentral","precuneus","rostral anterior cingulate","rostral middle frontal",
+      "superior frontal","superior parietal","superior temporal","supramarginal",
+      "temporal pole","transverse temporal")
+  list2 = str_replace_all(list," ","")
+  CT_names <- c(str_c("lh_",list2,"_volume"),str_c("rh_",list2,"_volume"))
+  DTK_Labes_For_Plot = list
+  plot_data_L = as.data.frame(DTK_Labes_For_Plot)
+  colnames(plot_data_L)[1] = "region"
+  plot_data_L$hemi="left"
+  plot_data_R = as.data.frame(DTK_Labes_For_Plot)
+  colnames(plot_data_R)[1] = "region"
+  plot_data_R$hemi="right"
+  plot_data = rbind(plot_data_L,plot_data_R)
+  plot_data$area_label = CT_names
+  plot_data$Effect=NA
+  plot_data$P_value=NA
+  attach(plot_data)
+  
+  for (im in 1:68) {
+    Region_AV1451_v1 = plot_data$area_label[im]
+    funtion_glm = paste(Region_AV1451_v1,"~",column_predictor,"+amyloid_age+Sex+Edu")
+    results = glm(funtion_glm,family = gaussian,data =data)
+    x = summary(results)
+    P_values_GLM = x$coefficients[2,3:4]
+    plot_data$Effect[im] = x$coefficients[2,1]
+    plot_data$P_value[im] = x$coefficients[2,4]
+  }
+  
+  plot_data <- plot_data %>% 
+    mutate(highlight = ifelse(P_value < 0.05, "sig", "non_sig")) %>%
+    mutate(p_adjust = p.adjust(P_value, "fdr", n = length(P_value))) %>%
+    mutate(highlight_sig = ifelse(p_adjust < 0.05, "sig", "non_sig"))
+  
+  return(plot_data)
+}
+
+analysis_glm_ATN_sub <- function(data,column_predictor){
+  
+    list_regions=c("lh_Thalamus_volume","lh_Caudate_volume","lh_Putamen_volume","lh_Pallidum_volume","lh_Hippocampus_volume","lh_Amygdala_volume",
+              "lh_Accumbens_area_volume","lh_choroid_plexus_volume",
+              "lh_Thalamus_volume","lh_Caudate_volume","lh_Putamen_volume","lh_Pallidum_volume","lh_Hippocampus_volume","lh_Amygdala_volume",
+              "lh_Accumbens_area_volume","lh_choroid_plexus_volume")
+    list_regions_plots <- c("thalamus proper","caudate","putamen","pallidum","hippocampus","amygdala","accumbens","choroid plexus",
+                            "thalamus proper","caudate","putamen","pallidum","hippocampus","amygdala","accumbens","choroid plexus")
+    
+    list_regions_labels <- c("Thalamus","Caudate nucleus","Putamen","Pallidum","Hippocampus","Amygdala","Nucleus Accumbens","Choroid plexus",
+                            "Thalamus","Caudate nucleus","Putamen","Pallidum","Hippocampus","Amygdala","Nucleus Accumbens","Choroid plexus")
+    
+    plot_data = as.data.frame(list_regions)
+    colnames(plot_data)[1] = "region"
+    plot_data$hemi[1:8]="left"
+    plot_data$hemi[9:16]="right"
+    plot_data$area_label = plot_data$region
+    plot_data$region = list_regions_plots
+    plot_data$region_label = list_regions_labels
+    plot_data$Effect=NA
+    plot_data$P_value=NA
+    attach(plot_data)
+    
+    PRS_cell_type <- column_predictor
+    
+    for (im in 1:16) {
+      Region_AV1451_v1 = plot_data$area_label[im]
+      funtion_glm = paste(Region_AV1451_v1,"~",PRS_cell_type,"+amyloid_DATEAFN+Sex+Edu+eTIV")
+      results = glm(funtion_glm,family = gaussian,data =data)
+      x = summary(results)
+      CI <- confint(results)
+      P_values_GLM = x$coefficients[2,3:4]
+      plot_data$Effect[im] = x$coefficients[2,1]
+      plot_data$P_value[im] = x$coefficients[2,4]
+      plot_data$ci_lower[im] = CI[2,1]
+      plot_data$ci_upper[im] = CI[2,2]
+    }
+    
+    plot_data <- plot_data %>% 
+      mutate(highlight = ifelse(P_value < 0.05, "sig", "non_sig")) %>%
+      mutate(p_adjust = p.adjust(P_value, "fdr", n = length(P_value))) %>%
+      mutate(highlight_sig = ifelse(p_adjust < 0.05, "sig", "non_sig"))
+    
+    return(plot_data)
+}
+
+create_atrophy_maps = function(data1,data2){
+  
+  colors <- c("#EB482F", "#F3E66C","white", "#7CCEDE", "#2D4CA0")
+  
+  plot1 <- ggseg(.data = data1,atlas = "dk",position="stacked",mapping = aes(fill = Effect, colour = highlight,size = highlight),
+                 show.legend = T) +
+          scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1,-0.6,-0,0.6,1)),limits = c(-1,1))+
+          scale_colour_manual(values = c("sig" = "black", "non_sig" = "grey")) +
+          scale_size_manual(values = c("sig" = 0.6, "non_sig" = 0.2)) +
+          theme_void() +
+          theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),legend.text=element_text(size=6),
+                legend.position = "none")+
+          theme(axis.line = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.border = element_blank(),
+                panel.background = element_blank())
+  
+  plot2 <- ggseg(.data = data2,atlas = "aseg",view = "coronal",mapping = aes(fill = Effect, colour = highlight,size = highlight),size=1,
+                 show.legend = F) +
+        scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1,-0.6,-0,0.6,1)),limits = c(-1,1))+
+        scale_colour_manual(values = c("sig" = "black", "non_sig" = "grey")) +
+        scale_size_manual(values = c("sig" = 0.6, "non_sig" = 0.2)) +
+        theme_void() +
+        theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),legend.text=element_text(size=6),
+              legend.position = "none")+
+        theme(axis.line = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.border = element_blank(),
+              panel.background = element_blank())
+  
+  plot_data_analysis = ggarrange(plot1,plot2,ncol = 1,nrow = 2,heights = c(2,1))
+  
+  return(plot_data_analysis)
+}
+
+
+# C1_domains <- calculate_cognition_domians_Annebet(C1,C2s)
+
+calculate_cognition_domians_Annebet <- function(C1,C2S){
+  
+  # Define cognitive measure fields
+  em <- c('N_15WT1','N_15WT2','N_15WT3','N_15WT4','N_15WT5','N_15WTui',
+           "N_15WTvn","N_15WTvp",'N_VATA1', 'N_VATA2')
+  ef <- c('N_FLD', 'N_FLA', 'N_FLT','N_TMTAt','N_TMTBt', 'N_CRspa', 'N_Strt3', 'N_Strt2')
+  ap <- c('N_CRspv', 'N_TMTAt', 'N_Strt1')# remove N_LDST_90
+  la <- c('N_FL60', 'N_Vatben')
+  vf <- c('N_Reykop', 'N_NumLoc', 'N_FraLet') # remove N_Reykop
+  
+  fields_of_interest <- c('I_ID', 'N_date', unique(c(em, ef, ap, la, vf)))
+  
+  # Cleaning data in C1 and C2s
+  for (c in unique(c(em, ef, ap, la, vf))) {
+    C1[[c]][C1[[c]] >= 997] <- NA
+    C2s[[c]][C2s[[c]] >= 997] <- NA
+  }
+  C1$N_VATB3[C1$N_VATB3 == 132] <- NA
+  
+  # Apply specific logic to fill missing values based on conditions
+  fill_logic <- function(df) {
+    df$N_VATB2[with(df, N_VATB1 == 6 & is.na(N_VATB2))] <- 6
+    df$N_VATA2[with(df, N_VATA1 == 6 & is.na(N_VATA2))] <- 6
+    df$N_VATA3[with(df, N_VATA1 == 6 | N_VATA2 == 6)] <- 6
+    df$N_VATB3[with(df, N_VATB1 == 6 | N_VATB2 == 6)] <- 6
+    return(df)
+  }
+
+  C1 <- fill_logic(C1)
+  C2s <- fill_logic(C2s)
+  
+  ############# Memory ############# 
+  em_wt15_a <- rowSums(C1[,c('N_15WT1','N_15WT2','N_15WT3','N_15WT4','N_15WT5')], na.rm = TRUE)
+  em_wt15_s <- rowSums(C2s[,c('N_15WT1','N_15WT2','N_15WT3','N_15WT4','N_15WT5')], na.rm = TRUE)
+  C1$em_wt15 <- (em_wt15_a - mean(em_wt15_s, na.rm = TRUE)) / mean(em_wt15_s, na.rm = TRUE) # Normalizing em1b
+  
+  em_Delayed_a <- C1$N_15WTui
+  em_Delayed_s <- C2s$N_15WTui
+  C1$em_Delayed <- (em_Delayed_a - mean(em_Delayed_s, na.rm = TRUE)) / mean(em_Delayed_s, na.rm = TRUE)
+  
+  em_Recognition_a = 30 - rowSums(C1[,c('N_15WTvn','N_15WTvp')], na.rm = TRUE)
+  em_Recognition_s = 30 - rowSums(C2s[,c('N_15WTvn','N_15WTvp')], na.rm = TRUE)
+  C1$em_Recognition <- (em_Recognition_a - mean(em_Recognition_s, na.rm = TRUE)) / mean(em_Recognition_s, na.rm = TRUE)
+  em_WT = rowMeans(C1[,c('em_wt15', 'em_Delayed',"em_Recognition")], na.rm = TRUE)
+  
+  em2 <- rowSums(C1[,c('N_VATA1', 'N_VATA2')], na.rm = TRUE)
+  em2s <- rowSums(C2s[,c('N_VATA1', 'N_VATA2')], na.rm = TRUE)
+  em_VATA <- (em2 - mean(em2s, na.rm = TRUE)) / sd(em2s, na.rm = TRUE)
+  C1$EpisodicMemory <- rowMeans(cbind(em_WT, em_VATA), na.rm = TRUE)
+  
+  
+  ############# ExecutiveFunctioning  ############# 
+  # N_fluency: N_FLD + N_FLA + N_FLT (=phonetic fluency)
+  ef4 <- rowSums(C1[,c('N_FLD', 'N_FLA', 'N_FLT')], na.rm = TRUE)
+  ef4s <- rowSums(C2s[,c('N_FLD', 'N_FLA', 'N_FLT')], na.rm = TRUE)
+  ef4 <- (ef4 - mean(ef4s, na.rm = TRUE)) / sd(ef4s, na.rm = TRUE)
+  
+  # TMTB: TMT B/A index (based on N_TMTAt / N_TMTBt)
+  ef1 <- (C1$N_TMTBt)/(C1$N_TMTAt)
+  ef1s <- (C2s$N_TMTBt)/(C2s$N_TMTAt)
+  ef1 <- (ef1 - mean(ef1s, na.rm = TRUE)) / sd(ef1s, na.rm = TRUE)
+  
+  # Stroop test: time on Stroop card 3 / ([time card 1 + time card 2] / 2)
+  ef3 <- C1$N_Strt3/(0.5*rowSums(C1[,c('N_Strt1', 'N_Strt2')], na.rm = TRUE))
+  ef3s <- C2s$N_Strt3/(0.5*rowSums(C2s[,c('N_Strt1', 'N_Strt2')], na.rm = TRUE))
+  ef3 <- (ef3 - mean(ef3s, na.rm = TRUE)) / sd(ef3s, na.rm = TRUE)
+  
+  # Digit span, backward: N_CRspa (= working memory)
+  ef2 <- C1$N_CRspa
+  ef2s <- C2s$N_CRspa
+  ef2 <- (ef2 - mean(ef2s, na.rm = TRUE)) / sd(ef2s, na.rm = TRUE)
+  # Executive Function:  mean(N_fluency, N_CRspa, TMTB,Stroop test)
+  C1$ExecutiveFunctioning <- rowMeans(cbind(ef4,ef1,ef2,ef3), na.rm = TRUE)
+
+  
+  ############# Attention and processing speed  ############# 
+  ap1 <- (C1$N_CRspv - mean(C2s$N_CRspv, na.rm = TRUE)) / sd(C2s$N_CRspv, na.rm = TRUE)
+  ap2 <- -(C1$N_TMTAt - mean(C2s$N_TMTAt, na.rm = TRUE)) / sd(C2s$N_TMTAt, na.rm = TRUE)
+  ap3 <- -(C1$N_Strt1 - mean(C2s$N_Strt1, na.rm = TRUE)) / sd(C2s$N_Strt1, na.rm = TRUE)
+  ap4 <- -(C1$N_Strt2 - mean(C2s$N_Strt2, na.rm = TRUE)) / sd(C2s$N_Strt2, na.rm = TRUE)
+  ap5 <- (C1$N_LDST_90 - mean(C2s$N_LDST_90, na.rm = TRUE)) / sd(C2s$N_LDST_90, na.rm = TRUE)
+  C1$Attention <- rowMeans(cbind(ap1,ap2,ap3,ap4), na.rm = TRUE)
+
+  #############  Language: mean(N_FL60, N_Vatben) ############# 
+  la1 <- (C1$N_FL60 - mean(C2s$N_FL60, na.rm = TRUE)) / sd(C2s$N_FL60, na.rm = TRUE)
+  la2 <- (C1$N_Vatben - mean(C2s$N_Vatben, na.rm = TRUE)) / sd(C2s$N_Vatben, na.rm = TRUE)
+  C1$Language <- rowMeans(cbind(la1, la2), na.rm = TRUE)
+
+  #############  Visualspatial functioning: mean(N_Reykop, N_NumLoc, N_FraLet) ############# 
+  vf1 <- (C1$N_Reykop - mean(C2s$N_Reykop, na.rm = TRUE)) / sd(C2s$N_Reykop, na.rm = TRUE)
+  vf2 <- (C1$N_NumLoc - mean(C2s$N_NumLoc, na.rm = TRUE)) / sd(C2s$N_NumLoc, na.rm = TRUE)
+  vf3 <- (C1$N_FraLet - mean(C2s$N_FraLet, na.rm = TRUE)) / sd(C2s$N_FraLet, na.rm = TRUE)
+  C1$VisuospatialFunctioning <- rowMeans(cbind(vf2, vf3), na.rm = TRUE)
+
+  return(C1)
+}
+
+calculate_cognition_domians_Annebet <- function(C1,C2S){
+  
+  # Define cognitive measure fields
+  em <- c('N_15WT1','N_15WT2','N_15WT3','N_15WT4','N_15WT5','N_15WTui',
+           "N_15WTvn","N_15WTvp",'N_VATA1', 'N_VATA2')
+  ef <- c('N_FLD', 'N_FLA', 'N_FLT','N_TMTAt','N_TMTBt', 'N_CRspa', 'N_Strt3', 'N_Strt2')
+  ap <- c('N_CRspv', 'N_TMTAt', 'N_Strt1')# remove N_LDST_90
+  la <- c('N_FL60', 'N_Vatben')
+  vf <- c('N_Reykop', 'N_NumLoc', 'N_FraLet') # remove N_Reykop
+  
+  fields_of_interest <- c('I_ID', 'N_date', unique(c(em, ef, ap, la, vf)))
+  
+  # Cleaning data in C1 and C2s
+  for (c in unique(c(em, ef, ap, la, vf))) {
+    C1[[c]][C1[[c]] >= 997] <- NA
+    C2s[[c]][C2s[[c]] >= 997] <- NA
+  }
+  C1$N_VATB3[C1$N_VATB3 == 132] <- NA
+  
+  # Apply specific logic to fill missing values based on conditions
+  fill_logic <- function(df) {
+    df$N_VATB2[with(df, N_VATB1 == 6 & is.na(N_VATB2))] <- 6
+    df$N_VATA2[with(df, N_VATA1 == 6 & is.na(N_VATA2))] <- 6
+    df$N_VATA3[with(df, N_VATA1 == 6 | N_VATA2 == 6)] <- 6
+    df$N_VATB3[with(df, N_VATB1 == 6 | N_VATB2 == 6)] <- 6
+    return(df)
+  }
+
+  C1 <- fill_logic(C1)
+  C2s <- fill_logic(C2s)
+  
+  ############# Memory ############# 
+  em_wt15_a <- rowSums(C1[,c('N_15WT1','N_15WT2','N_15WT3','N_15WT4','N_15WT5')], na.rm = TRUE)
+  em_wt15_s <- rowSums(C2s[,c('N_15WT1','N_15WT2','N_15WT3','N_15WT4','N_15WT5')], na.rm = TRUE)
+  C1$em_wt15 <- (em_wt15_a - mean(em_wt15_s, na.rm = TRUE)) / mean(em_wt15_s, na.rm = TRUE) # Normalizing em1b
+  
+  em_Delayed_a <- C1$N_15WTui
+  em_Delayed_s <- C2s$N_15WTui
+  C1$em_Delayed <- (em_Delayed_a - mean(em_Delayed_s, na.rm = TRUE)) / mean(em_Delayed_s, na.rm = TRUE)
+  
+  em_Recognition_a = 30 - rowSums(C1[,c('N_15WTvn','N_15WTvp')], na.rm = TRUE)
+  em_Recognition_s = 30 - rowSums(C2s[,c('N_15WTvn','N_15WTvp')], na.rm = TRUE)
+  C1$em_Recognition <- (em_Recognition_a - mean(em_Recognition_s, na.rm = TRUE)) / mean(em_Recognition_s, na.rm = TRUE)
+  em_WT = rowMeans(C1[,c('em_wt15', 'em_Delayed',"em_Recognition")], na.rm = TRUE)
+  
+  em2 <- rowSums(C1[,c('N_VATA1', 'N_VATA2')], na.rm = TRUE)
+  em2s <- rowSums(C2s[,c('N_VATA1', 'N_VATA2')], na.rm = TRUE)
+  em_VATA <- (em2 - mean(em2s, na.rm = TRUE)) / sd(em2s, na.rm = TRUE)
+  C1$EpisodicMemory <- rowMeans(cbind(em_WT, em_VATA), na.rm = TRUE)
+  
+  
+  ############# ExecutiveFunctioning  ############# 
+  # N_fluency: N_FLD + N_FLA + N_FLT (=phonetic fluency)
+  ef4 <- rowSums(C1[,c('N_FLD', 'N_FLA', 'N_FLT')], na.rm = TRUE)
+  ef4s <- rowSums(C2s[,c('N_FLD', 'N_FLA', 'N_FLT')], na.rm = TRUE)
+  ef4 <- (ef4 - mean(ef4s, na.rm = TRUE)) / sd(ef4s, na.rm = TRUE)
+  
+  # TMTB: TMT B/A index (based on N_TMTAt / N_TMTBt)
+  ef1 <- (C1$N_TMTBt)/(C1$N_TMTAt)
+  ef1s <- (C2s$N_TMTBt)/(C2s$N_TMTAt)
+  ef1 <- (ef1 - mean(ef1s, na.rm = TRUE)) / sd(ef1s, na.rm = TRUE)
+  
+  # Stroop test: time on Stroop card 3 / ([time card 1 + time card 2] / 2)
+  ef3 <- C1$N_Strt3/(0.5*rowSums(C1[,c('N_Strt1', 'N_Strt2')], na.rm = TRUE))
+  ef3s <- C2s$N_Strt3/(0.5*rowSums(C2s[,c('N_Strt1', 'N_Strt2')], na.rm = TRUE))
+  ef3 <- (ef3 - mean(ef3s, na.rm = TRUE)) / sd(ef3s, na.rm = TRUE)
+  
+  # Digit span, backward: N_CRspa (= working memory)
+  ef2 <- C1$N_CRspa
+  ef2s <- C2s$N_CRspa
+  ef2 <- (ef2 - mean(ef2s, na.rm = TRUE)) / sd(ef2s, na.rm = TRUE)
+  # Executive Function:  mean(N_fluency, N_CRspa, TMTB,Stroop test)
+  C1$ExecutiveFunctioning <- rowMeans(cbind(ef4,ef1,ef2,ef3), na.rm = TRUE)
+
+  
+  ############# Attention and processing speed  ############# 
+  ap1 <- (C1$N_CRspv - mean(C2s$N_CRspv, na.rm = TRUE)) / sd(C2s$N_CRspv, na.rm = TRUE)
+  ap2 <- -(C1$N_TMTAt - mean(C2s$N_TMTAt, na.rm = TRUE)) / sd(C2s$N_TMTAt, na.rm = TRUE)
+  ap3 <- -(C1$N_Strt1 - mean(C2s$N_Strt1, na.rm = TRUE)) / sd(C2s$N_Strt1, na.rm = TRUE)
+  ap4 <- -(C1$N_Strt2 - mean(C2s$N_Strt2, na.rm = TRUE)) / sd(C2s$N_Strt2, na.rm = TRUE)
+  ap5 <- (C1$N_LDST_90 - mean(C2s$N_LDST_90, na.rm = TRUE)) / sd(C2s$N_LDST_90, na.rm = TRUE)
+  C1$Attention <- rowMeans(cbind(ap1,ap2,ap3,ap4), na.rm = TRUE)
+
+  #############  Language: mean(N_FL60, N_Vatben) ############# 
+  la1 <- (C1$N_FL60 - mean(C2s$N_FL60, na.rm = TRUE)) / sd(C2s$N_FL60, na.rm = TRUE)
+  la2 <- (C1$N_Vatben - mean(C2s$N_Vatben, na.rm = TRUE)) / sd(C2s$N_Vatben, na.rm = TRUE)
+  C1$Language <- rowMeans(cbind(la1, la2), na.rm = TRUE)
+
+  #############  Visualspatial functioning: mean(N_Reykop, N_NumLoc, N_FraLet) ############# 
+  vf1 <- (C1$N_Reykop - mean(C2s$N_Reykop, na.rm = TRUE)) / sd(C2s$N_Reykop, na.rm = TRUE)
+  vf2 <- (C1$N_NumLoc - mean(C2s$N_NumLoc, na.rm = TRUE)) / sd(C2s$N_NumLoc, na.rm = TRUE)
+  vf3 <- (C1$N_FraLet - mean(C2s$N_FraLet, na.rm = TRUE)) / sd(C2s$N_FraLet, na.rm = TRUE)
+  C1$VisuospatialFunctioning <- rowMeans(cbind(vf2, vf3), na.rm = TRUE)
+
+  return(C1)
+}
+
+
+missing_report <- function(data,column_predictor){
+  
+  Y <- data[,column_predictor]
+  missing <- round(colSums(is.na(Y) / nrow(Y)) * 100, 1)
+  return(missing)
+}
+
+
+
+mutate_group_outliers_na <- function(.data, group_col, var_cols,
+                                     sd_thresh = 3, na.rm = TRUE) {
+  .data %>%
+    group_by({{ group_col }}) %>%
+    mutate(
+      across(
+        all_of(var_cols),
+        ~ replace(
+            .,
+            abs(. - mean(., na.rm = na.rm)) > sd_thresh * sd(., na.rm = na.rm),
+            NA_real_
+          ),
+        .names = "{.col}"
+      )
+    ) %>%
+    ungroup()
+}
+
+
+
+mutate_group_outliers_iqr_na <- function(.data, group_col, var_cols,
+                                         iqr_thresh = 1.5, na.rm = TRUE) {
+  .data %>%
+    group_by({{ group_col }}) %>%
+    mutate(
+      across(
+        all_of(var_cols),
+        ~ {
+          # compute 25th and 75th percentiles
+          qs  <- quantile(., probs = c(0.25, 0.75), na.rm = na.rm)
+          Q1  <- qs[1]; Q3 <- qs[2]
+          iqr <- Q3 - Q1
+  
+          # define lower/upper fences
+          lower <- Q1 - iqr_thresh * iqr
+          upper <- Q3 + iqr_thresh * iqr
+  
+          # replace outside fence with NA
+          replace(., . < lower | . > upper, NA_real_)
+        },
+        .names = "{.col}"
+      )
+    ) %>%
+    ungroup()
+}
+```
+
+
+# general data clean 
+```{r,include=FALSE}
+
+# MRI phenotypes
+names_CT <- c(names(Freesurfer_output_718)[165:199],names(Freesurfer_output_718)[202:236])
+names_Vol <- c(names(Freesurfer_output_718)[240:273],names(Freesurfer_output_718)[276:309])
+
+names_Sub_1<- c("Left-Thalamus","Left-Caudate","Left-Putamen","Left-Pallidum","Left-Hippocampus","Left-Amygdala",
+              "Left-Accumbens-area","Left-choroid-plexus",
+              "Right-Thalamus","Right-Caudate","Right-Putamen","Right-Pallidum","Right-Hippocampus","Right-Amygdala",
+              "Right-Accumbens-area","Right-choroid-plexus")
+names_Sub_2<- c("lh_Thalamus_volume","lh_Caudate_volume","lh_Putamen_volume","lh_Pallidum_volume","lh_Hippocampus_volume","lh_Amygdala_volume",
+              "lh_Accumbens_area_volume","lh_choroid_plexus_volume",
+              "rh_Thalamus_volume","rh_Caudate_volume","rh_Putamen_volume","rh_Pallidum_volume","rh_Hippocampus_volume","rh_Amygdala_volume",
+              "rh_Accumbens_area_volume","rh_choroid_plexus_volume")
+names_eTIV <- c("EstimatedTotalIntraCranialVol")
+MRI_IDPs = c(names_CT,names_Vol,names_Sub_1,names_eTIV)
+MRI_IDPs_after = c(names_CT,names_Vol,names_Sub_2,"eTIV")
+
+
+data_718_MRI_v00 <- data_718_MRI %>% 
+  filter(!(MRI_ID == "NULL" | is.na(M_dat)))
+
+data_718_MRI_v0 <- Freesurfer_output_718 %>% 
+  select(MRI_ID,I_ID,ManufacturersModelName,MagneticFieldStrength,MRI_IDPs) %>%
+  mutate(MRI_ID = str_split(MRI_ID,"sub-",simplify = TRUE)[,2]) %>%
+  inner_join(data_718_MRI_v00[,c("MRI_ID","M_dat","M_age","M_scan","M_quality","M_Fazekas")],by = "MRI_ID") %>%
+  mutate(M_dat = ymd(M_dat)) %>%
+  mutate(I_ID = as.numeric(I_ID)) %>%
+  filter(!if_any(all_of(c(MRI_IDPs)), is.na)) %>%
+  
+  group_by(ManufacturersModelName) %>%
+  filter(n() >= 20) %>%
+  ungroup() %>%
+  
+  filter(!is.na(I_ID) & !is.na(M_dat)) %>%
+  
+  mutate(MagneticFieldStrength = case_when(
+    MagneticFieldStrength == 0.95007 ~ 1,
+    MagneticFieldStrength == 1.494 ~ 1.5,
+    MagneticFieldStrength == 1.5 ~ 1.5,
+    MagneticFieldStrength == 3 ~ 3
+  )) %>%
+  filter(!(ManufacturersModelName == "SIGNA HDx" & MagneticFieldStrength == 1.5))
+
+
+data_718_Baseline_v0 <- data_718_Baseline %>% mutate(I_dat_1 = ymd(I_dat_1)) %>%
+  filter(!I_sex == "NULL" & !I_edu_VE == "NULL") %>%
+  mutate(APOE_status = case_when(
+    APOE %in% c("E2E4","E3E4","E4E4")~"e4-carrier",
+    APOE %in% c("E2E2","E2E3","E3E3")~"e4-non-carrier",
+    APOE == c("NULL")~"Missing",
+  )) %>%
+  mutate(Edu = case_when(
+    I_edu_VE == 1 ~ 5,
+    I_edu_VE == 2 ~ 6,
+    I_edu_VE == 3 ~ 8,
+    I_edu_VE == 4 ~ 9,
+    I_edu_VE == 5 ~ 10,
+    I_edu_VE == 6 ~ 13,
+    I_edu_VE == 7 ~ 17
+  )) %>%
+  mutate(Sex = if_else(I_sex %in% c("M","m"),"m","f")) %>%
+  mutate(Sex = factor(Sex,c("m","f"))) %>%
+  select(I_ID,Sex,Edu,APOE_status)
+
+
+data_718_Diagnosis_v0 <- data_718_Diagnosis %>% 
+  mutate(D_dat = ymd(D_dat)) %>%
+  #filter(diagnoseOms %in% c("Subjectieve klachten","MCI","Possible AD","Probable AD","FTD","DLB")) %>%
+  mutate(D_diagnosis = case_when(
+  diagnoseOms == "Subjectieve klachten"~"SCD",
+  diagnoseOms == "MCI"~"MCI",
+  diagnoseOms == "Probable AD"~"AD",
+  diagnoseOms == "FTD"~"FTD",
+  diagnoseOms == "DLB"~"DLB",
+  TRUE ~ diagnoseOms,
+))
+
+
+data_718_CSF_v0 <- data_718_CSF %>% 
+  mutate(L_DATEAFN = ymd(L_DATEAFN)) %>%
+  filter(!L_AB42_corr == "NULL" | !L_AB42_Elecsys == "NULL") %>%
+  mutate(ATN_AB = case_when(is.na(L_AB42_corr) & is.na(L_AB42_Elecsys) ~ NA,
+                            L_AB42_Elecsys < 1000 & !is.na(L_AB42_Elecsys) ~ "A+",
+                            L_AB42_Elecsys >= 1000 & !is.na(L_AB42_Elecsys) ~ "A-",
+                            L_AB42_corr < 813 & is.na(L_AB42_Elecsys) ~ "A+",
+                            L_AB42_corr >= 813 & is.na(L_AB42_Elecsys) ~ "A-")) %>%
+  mutate(across(c("L_AB42_Elecsys","L_AB42_corr","L_TAU_Elecsys","L_TAU","L_PTAU_Elecsys","L_PTAU"), as.numeric)) %>%
+  mutate(L_AB42_norm = ifelse(!is.na(L_AB42_Elecsys), L_AB42_Elecsys, (-365 + 1.87 * L_AB42_corr)), 
+         L_TAU_norm = ifelse(!is.na(L_TAU_Elecsys), L_TAU_Elecsys, (-365 + 1.87 * L_TAU)), 
+         L_PTAU_norm = ifelse(!is.na(L_PTAU_Elecsys), L_PTAU_Elecsys, -3.9 + 0.44 * L_PTAU)) %>%
+  filter(!if_any(all_of(c("L_AB42_norm","L_TAU_norm","L_PTAU_norm")), is.na))
+  
+
+data_718_PET_v0 <- data_718_PET %>% mutate(PT_date = ymd(PT_date)) %>% 
+  filter(!is.na(PT_result_amyloid))
+
+
+data_718_NPO_v0 <- data_718_NPO %>% 
+  mutate(N_date = ymd(N_date)) %>% 
+  mutate(across(where(is.character), ~na_if(., "NULL"))) %>%
+  mutate(across(starts_with("N_") & !any_of(c("N_date", "N_age")), as.numeric)) %>%
+  mutate(across(
+    starts_with("N_") & !any_of(c("N_date", "N_age")), 
+    ~ifelse(. >= 997, NA, .)))
+
+data_718_MMSE_v0 <- data_718_MMSE %>% mutate(V_dat = ymd(V_dat)) %>% mutate(V_MMSE = as.numeric(V_MMSE)) %>% filter(!is.na(V_MMSE))
+```
+
+
+
+# Main Data Selection
+```{r}
+############################## harmonize CSF and PET the "bind_rows" later ############################## 
+data_718_CSF_v1 <- data_718_CSF_v0 %>% select(I_ID,L_DATEAFN,CSF_A,L_age) %>%
+  rename(amyloid_DATEAFN = L_DATEAFN,amyloid_status = CSF_A) %>%
+  mutate(amyloid_source = "CSF")
+
+data_718_PET_v1 <- data_718_PET_v0 %>% select(I_ID,PT_date,PT_result_amyloid) %>%
+  rename(amyloid_DATEAFN = PT_date,amyloid_status = PT_result_amyloid) %>%
+  mutate(amyloid_status = if_else(amyloid_status %in% c("positief","Positief"),"A+","A-")) %>%
+  mutate(amyloid_source = "PET")
+
+############################## data selection based on CSF ############################## 
+data_718_CSF_unique <- data_718_CSF_v1 %>% 
+  
+  inner_join(data_718_Baseline_v0,by = "I_ID",relationship = "many-to-many") %>% 
+  
+  inner_join(data_718_MRI_v0,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_M_raw = difftime(amyloid_DATEAFN,M_dat,units ="days"),diff_L_M = abs(diff_L_M_raw),relationship = "many-to-many") %>%
+  
+  inner_join(data_718_NPO_v0,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_N_raw = difftime(amyloid_DATEAFN,N_date,units ="days"),diff_L_N = abs(diff_L_N_raw),relationship = "many-to-many") %>%
+  
+  inner_join(data_718_Diagnosis_v0,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_D = difftime(D_dat,amyloid_DATEAFN,units ="days"),relationship = "many-to-many") %>% 
+  
+  inner_join(data_718_MMSE,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_V_raw = difftime(amyloid_DATEAFN,V_dat,units ="days"),diff_L_V = abs(diff_L_V_raw),relationship = "many-to-many") %>%
+  
+  filter((abs(diff_L_M) <= 365 & abs(diff_L_N) <= 365) & abs(diff_L_D) <= 365 & abs(diff_L_V) <= 365) %>%
+  
+  group_by(I_ID) %>%
+  filter(diff_L_D == max(diff_L_D)) %>%
+  arrange(diff_L_M,diff_L_N,diff_L_V) %>%
+  slice(1) %>%
+  ungroup()
+
+
+##############################  data selection based on PET ############################## 
+data_718_PET_unique <- data_718_PET_v1 %>% 
+  
+  inner_join(data_718_Baseline_v0,by = "I_ID",relationship = "many-to-many") %>% 
+  
+  inner_join(data_718_MRI_v0,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_M_raw = difftime(amyloid_DATEAFN,M_dat,units ="days"),diff_L_M = abs(diff_L_M_raw),relationship = "many-to-many") %>%
+  
+  inner_join(data_718_NPO_v0,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_N_raw = difftime(amyloid_DATEAFN,N_date,units ="days"),diff_L_N = abs(diff_L_N_raw),relationship = "many-to-many") %>%
+  
+  inner_join(data_718_Diagnosis_v0,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_D = difftime(D_dat,amyloid_DATEAFN,units ="days"),relationship = "many-to-many") %>% 
+  
+  inner_join(data_718_MMSE,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_V_raw = difftime(amyloid_DATEAFN,V_dat,units ="days"),diff_L_V = abs(diff_L_V_raw),relationship = "many-to-many") %>%
+  
+  filter((abs(diff_L_M) <= 365 & abs(diff_L_N) <= 365) & abs(diff_L_D) <= 365 & abs(diff_L_V) <= 365) %>%
+  
+  group_by(I_ID) %>%
+  filter(diff_L_D == max(diff_L_D)) %>%
+  arrange(diff_L_M,diff_L_N,diff_L_V) %>%
+  slice(1) %>%
+  ungroup()
+
+
+############################## bind_rows two DF based on rules: PET first ############################## 
+data_ADC_analysis <- bind_rows(data_718_PET_unique,data_718_CSF_unique) %>%
+  group_by(I_ID) %>%
+  filter(!(amyloid_source == "CSF" & any(amyloid_source == "PET"))) %>%
+  ungroup() %>%
+  arrange(I_ID,amyloid_DATEAFN) %>%
+  filter(D_diagnosis %in% c("SCD","AD","DLB","FTD")) %>%
+  filter(!(D_diagnosis == "SCD"& amyloid_status == "A+")) %>%
+  filter(!(D_diagnosis == "AD"& amyloid_status == "A-")) %>%
+  mutate(amyloid_age = if_else(
+    amyloid_source == "PET", M_age + round(as.numeric(difftime(amyloid_DATEAFN,M_dat,units ="days"))/365,2),L_age))
+
+
+# dim(data_ADC_analysis)
+# table(data_ADC_analysis$D_diagnosis,data_ADC_analysis$amyloid_status)
+# data_ADC_analysis_dip <- data_ADC_analysis %>% filter(I_ID %in% data_ADC_analysis$I_ID[duplicated(data_ADC_analysis$I_ID)])
+
+data_ADC_analysis <- data_ADC_analysis %>%
+  mutate_group_outliers_na(
+    group_col = D_diagnosis,
+    var_cols  = c("N_Strt1","N_Strt2","N_Strt3","N_TMTBt","N_TMTAt"),
+    sd_thresh = 3
+  )
+
+
+#amyloid_compare <- data_718_PET_unique %>%
+#  filter(D_diagnosis %in% c("SCD","AD","DLB","FTD")) %>%
+#  select(I_ID, PET_status = amyloid_status) %>%
+#  inner_join(
+#    data_718_CSF_unique %>%
+#      select(I_ID, CSF_status = amyloid_status,D_diagnosis) %>% filter(D_diagnosis %in% c("SCD","AD","DLB","FTD")),
+#    by = "I_ID"
+#  )
+
+#table(amyloid_compare$CSF_status, amyloid_compare$PET_status)
+
+#X <- amyloid_compare %>% filter(!CSF_status == PET_status)
+#table(X$D_diagnosis)
+```
+
+
+# MRI data preprocessing: correct for scanner effects
+```{r}
+# MRI phenotypes
+names_CT <- c(names(Freesurfer_output_718)[165:199],names(Freesurfer_output_718)[202:236])
+names_Vol <- c(names(Freesurfer_output_718)[240:273],names(Freesurfer_output_718)[276:309])
+
+names_Sub_1<- c("Left-Thalamus","Left-Caudate","Left-Putamen","Left-Pallidum","Left-Hippocampus","Left-Amygdala",
+              "Left-Accumbens-area","Left-choroid-plexus",
+              "Right-Thalamus","Right-Caudate","Right-Putamen","Right-Pallidum","Right-Hippocampus","Right-Amygdala",
+              "Right-Accumbens-area","Right-choroid-plexus")
+names_Sub_2<- c("lh_Thalamus_volume","lh_Caudate_volume","lh_Putamen_volume","lh_Pallidum_volume","lh_Hippocampus_volume","lh_Amygdala_volume",
+              "lh_Accumbens_area_volume","lh_choroid_plexus_volume",
+              "rh_Thalamus_volume","rh_Caudate_volume","rh_Putamen_volume","rh_Pallidum_volume","rh_Hippocampus_volume","rh_Amygdala_volume",
+              "rh_Accumbens_area_volume","rh_choroid_plexus_volume")
+names_eTIV <- c("EstimatedTotalIntraCranialVol")
+MRI_IDPs = c(names_CT,names_Vol,names_Sub_1,names_eTIV)
+MRI_IDPs_after = c(names_CT,names_Vol,names_Sub_2,"eTIV")
+
+################################## correction scanner * sites
+data_ADC_analysis_MRI <- data_ADC_analysis %>%
+  select(MRI_ID, M_age, Sex, Edu, D_diagnosis,amyloid_status,ManufacturersModelName, MagneticFieldStrength,EstimatedTotalIntraCranialVol,all_of(MRI_IDPs)) %>% 
+  rename(Scanner = ManufacturersModelName, Field_Strength = MagneticFieldStrength) %>%
+  mutate(eTIV = EstimatedTotalIntraCranialVol)
+
+clindata_path_data = data_ADC_analysis_MRI[,c("MRI_ID","M_age","Sex","Edu","D_diagnosis")]
+mridata_path_data = data_ADC_analysis_MRI
+
+writexl::write_xlsx(clindata_path_data,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/MRI_scanner/clindata_path_data.xlsx")
+writexl::write_xlsx(mridata_path_data,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/MRI_scanner/mridata_path_data.xlsx")
+
+# python /Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/scripts/combat_ADC_mega.py
+
+data_ADC_analysis_MRI_filtered = read_xlsx("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/MRI_scanner/final_23_June2025.xlsx")
+data_ADC_analysis_v1 <- data_ADC_analysis %>% 
+  select(-all_of(c(names_CT,names_Vol,names_Sub_1,names_eTIV))) %>%
+  left_join(data_ADC_analysis_MRI_filtered[,c("MRI_ID",c(names_CT,names_Vol,names_Sub_1,"eTIV"))],by = c("MRI_ID")) %>%
+  rename_with(.cols = all_of(names_Sub_1),
+              .fn = ~ str_replace_all(., "-", "_")) %>%
+  rename_with(.cols = starts_with("Left_"),
+              .fn = ~ str_replace_all(., "Left_", "lh_") %>% paste0("_volume")) %>%
+  rename_with(.cols = starts_with("Right_"),
+              .fn = ~ str_replace_all(., "Right_", "rh_") %>% paste0("_volume")) %>%
+  
+  mutate(across(starts_with("lh_"), 
+                .fns = list(mean = ~ ( . + get(sub("lh_", "rh_", cur_column())) ) / 2), 
+                .names = "{sub('lh_', '', .col)}_mean")) %>% 
+  mutate(across(starts_with("Left."), 
+                .fns = list(mean = ~ ( . + get(sub("Left.", "Right.", cur_column())) ) / 2), 
+                .names = "{sub('Left.', '', .col)}_mean")) %>%
+  
+  ### scaling
+  mutate(across(all_of(c(names_CT,names_Vol,names_Sub_2,"eTIV")), scale)) %>%
+  mutate(across(ends_with("_mean"), scale))
+
+
+save(data_ADC_analysis_v1,file = "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/scripts/Pati_Combat/ADC_harmonized.RData")
+```
+
+
+############ combat visualization plot
+```{r}
+data_ADC_analysis_MRI_filtered <- data_ADC_analysis_MRI_filtered %>% 
+  inner_join(data_ADC_analysis_MRI[,c("MRI_ID","Scanner","Field_Strength","D_diagnosis","M_age")],"MRI_ID")
+
+data_ADC_analysis_MRI$Left_Hippocampus = data_ADC_analysis_MRI$`Left-Hippocampus`
+data_ADC_analysis_MRI$Field_Strength = as.character(data_ADC_analysis_MRI$Field_Strength)
+data_ADC_analysis_MRI$scaner_type = str_c(data_ADC_analysis_MRI$Scanner,":",data_ADC_analysis_MRI$Field_Strength,"T")
+data_ADC_analysis_MRI$scaner_type = factor(data_ADC_analysis_MRI$scaner_type,c("Signa HDxt:3T","Avanto:1.5T","DISCOVERY MR750:3T","Ingenuity:3T","MAGNETOM EXPERT:1T","MAGNETOM Vida:3T","SIGNA HDx:3T","Signa HDxt:1.5T","Sonata:1.5T","Titan3T:3T"))
+
+data_ADC_analysis_MRI_filtered$Left_Hippocampus = data_ADC_analysis_MRI_filtered$`Left-Hippocampus`
+data_ADC_analysis_MRI_filtered$Field_Strength = as.character(data_ADC_analysis_MRI_filtered$Field_Strength)
+data_ADC_analysis_MRI_filtered$scaner_type = str_c(data_ADC_analysis_MRI_filtered$Scanner,":",data_ADC_analysis_MRI_filtered$Field_Strength,"T")
+data_ADC_analysis_MRI_filtered$scaner_type = factor(data_ADC_analysis_MRI_filtered$scaner_type,c("Signa HDxt:3T","Avanto:1.5T","DISCOVERY MR750:3T","Ingenuity:3T","MAGNETOM EXPERT:1T","MAGNETOM Vida:3T","SIGNA HDx:3T","Signa HDxt:1.5T","Sonata:1.5T","Titan3T:3T"))
+## ============================================
+## Scanner-type effects on Left Hippocampus
+## Raw vs ComBat-corrected
+## ============================================
+
+library(dplyr)
+library(ggplot2)
+library(broom)
+library(scales)   # for pvalue()
+library(ggpubr)   # for ggarrange
+
+## ------------------------------------------------
+## 0. Helper: function to get scanner forest data
+## ------------------------------------------------
+
+scanner_forest_df <- function(dat) {
+  
+  fit <- lm(Left_Hippocampus ~ scaner_type + M_age + Sex + Edu + D_diagnosis + eTIV, data = dat)
+
+  tidy(fit, conf.int = TRUE) %>%
+    filter(grepl("^scaner_type", term)) %>%
+    mutate(
+      Scanner  = sub("^scaner_type", "", term),
+      Beta     = estimate,
+      CI_lower = conf.low,
+      CI_upper = conf.high,
+      p_lab    = pvalue(p.value, accuracy = 1e-2),
+      CI_mid   = Beta
+    ) %>%
+    mutate(Scanner = factor(c("Avanto:1.5T","DISCOVERY MR750:3T","Ingenuity:3T","MAGNETOM EXPERT:1T","MAGNETOM Vida:3T","SIGNA HDx:3T","Signa HDxt:1.5T","Sonata:1.5T","Titan3T:3T"), levels = Scanner))
+    #arrange(Beta) %>%
+    
+}
+
+
+
+
+## ------------------------------------------------
+## 1. Prepare forest data (raw & ComBat) and axis
+## ------------------------------------------------
+
+df_raw    <- scanner_forest_df(data_ADC_analysis_MRI)
+  
+df_combat <- scanner_forest_df(data_ADC_analysis_MRI_filtered)
+
+# Get overall CI range across both datasets
+ylim_all <- range(
+  df_raw$CI_lower, df_raw$CI_upper,
+  df_combat$CI_lower, df_combat$CI_upper,
+  na.rm = TRUE
+)
+
+# Make it symmetric around 0 and a bit wider
+max_abs  <- max(abs(ylim_all))
+ylim_sym <- c(-max_abs, max_abs) * 1.1   # 10% extra margin
+
+
+## =========================
+## 2. RAW (uncorrected)
+## =========================
+
+## 2a. Boxplot – raw
+
+box_raw <- ggplot(
+  data_ADC_analysis_MRI,
+  aes(x = scaner_type,
+      y = Left_Hippocampus,
+      group = scaner_type,
+      fill  = scaner_type)
+) +
+  geom_boxplot(alpha = 0.7, outlier.alpha = 0.5) +
+  labs(
+    x = NULL,
+    y = "Left hippocampal volume",  # add unit if you have it, e.g. (mm^3)
+    fill = "Scanner type",
+    title = "Raw (uncorrected)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor   = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.text.x        = element_text(angle = 45, hjust = 1),
+    legend.position    = "NULL",
+    legend.title       = element_text(size = 10),
+    legend.text        = element_text(size = 9),
+    plot.title         = element_text(face = "bold", hjust = 0),
+    plot.margin        = margin(5, 5, 5, 5)
+  )
+
+## 2b. Forest – raw
+
+forest_raw <- ggplot(
+  df_raw,
+  aes(x = Scanner, y = Beta, ymin = CI_lower, ymax = CI_upper)
+) +
+  geom_hline(yintercept = 0, linetype = "dashed",
+             color = "grey60", linewidth = 0.4) +
+  geom_pointrange(linewidth = 0.5, color = "black") +
+  geom_text(
+    aes(y = CI_mid, label = p_lab, group = 1),
+    position = position_nudge(x = -0.18),
+    vjust = 1.4, size = 3.2, lineheight = 0.9, color = "black"
+  ) +
+  coord_flip(clip = "off") +
+  scale_y_continuous(limits = ylim_sym) +
+  labs(
+    x = NULL,
+    y = expression(beta~"(95% CI)"),
+    title = "Scanner-type effects (raw)"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    panel.grid.major.x = element_line(color = "grey90", linewidth = 0.3),
+    panel.grid.minor   = element_blank(),
+    axis.text.y        = element_text(size = 10, face = "bold"),
+    legend.position    = "none",
+    plot.title         = element_text(face = "bold", hjust = 0),
+    plot.margin        = margin(5, 15, 5, 5)
+  )
+
+## 2c. Combine raw figure
+
+fig_raw <- ggarrange(
+  box_raw,
+  forest_raw,
+  ncol    = 1,
+  heights = c(1, 1.1)
+)
+
+## 2d. Save raw figure (change format if needed: .pdf, .tiff)
+
+ggsave(
+  filename = "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/combat_QC/Figure_scanner_raw.tiff",
+  plot     = fig_raw,
+  width    = 6, height = 8, dpi = 300
+)
+
+
+## =========================
+## 3. ComBat-corrected
+## =========================
+
+## 3a. Boxplot – ComBat
+
+box_combat <- ggplot(
+  data_ADC_analysis_MRI_filtered,
+  aes(x = scaner_type,
+      y = Left_Hippocampus,
+      group = scaner_type,
+      fill  = scaner_type)
+) +
+  geom_boxplot(alpha = 0.7, outlier.alpha = 0.5) +
+  labs(
+    x = NULL,
+    y = "Left hippocampal volume",
+    fill = "Scanner type",
+    title = "ComBat-corrected"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor   = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.text.x        = element_text(angle = 45, hjust = 1),
+    legend.position    = "NULL",
+    legend.title       = element_text(size = 10),
+    legend.text        = element_text(size = 9),
+    plot.title         = element_text(face = "bold", hjust = 0),
+    plot.margin        = margin(5, 5, 5, 5)
+  )
+
+## 3b. Forest – ComBat
+
+forest_combat <- ggplot(
+  df_combat,
+  aes(x = Scanner, y = Beta, ymin = CI_lower, ymax = CI_upper)
+) +
+  geom_hline(yintercept = 0, linetype = "dashed",
+             color = "grey60", linewidth = 0.4) +
+  geom_pointrange(linewidth = 0.5, color = "black") +
+  geom_text(
+    aes(y = CI_mid, label = p_lab, group = 1),
+    position = position_nudge(x = -0.18),
+    vjust = 1.4, size = 3.2, lineheight = 0.9, color = "black"
+  ) +
+  coord_flip(clip = "off") +
+  scale_y_continuous(limits = ylim_sym) +
+  labs(
+    x = NULL,
+    y = expression(beta~"(95% CI)"),
+    title = "Scanner-type effects (ComBat-corrected)"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    panel.grid.major.x = element_line(color = "grey90", linewidth = 0.3),
+    panel.grid.minor   = element_blank(),
+    axis.text.y        = element_text(size = 10, face = "bold"),
+    legend.position    = "none",
+    plot.title         = element_text(face = "bold", hjust = 0),
+    plot.margin        = margin(5, 15, 5, 5)
+  )
+
+## 3c. Combine ComBat figure
+
+fig_combat <- ggarrange(
+  box_combat,
+  forest_combat,
+  ncol    = 1,
+  heights = c(1, 1.1),
+  legend = NULL
+)
+
+## 3d. Save ComBat figure
+
+ggsave(
+  filename = "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/combat_QC/Figure_scanner_ComBat.tiff",
+  plot     = fig_combat,
+  width    = 6, height = 8, dpi = 300
+)
+
+```
+
+
+# Annebet's pipeline + without imputation
+```{r}
+load("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/scripts/Pati_Combat/ADC_harmonized.RData")
+data_tmp <- data_ADC_analysis_v1 %>% 
+  
+  ## memory
+  rowwise() %>%
+  mutate(
+    n_me_WT_sum = log(sum(c_across(N_15WT1:N_15WT5)) + 1),
+    n_me_delayed = log(N_15WTui + 1),
+    n_me_recognition = log(30 - N_15WTvn - N_15WTvp + 1),
+    n_me_vata = log(sum(c_across(N_VATA1:N_VATA2)) + 1),
+  ) %>%
+  ungroup() %>%
+
+  ## executive functioning
+  rowwise() %>%
+  mutate(
+    n_ef_FL_sum = log(sum(c_across(N_FLD:N_FLT)) + 1),
+    n_ef_TMT_index = -1 * log(N_TMTBt/N_TMTAt + 1),
+    n_ef_Strt_index = -1 * log(N_Strt3/sum(c_across(c("N_Strt1","N_Strt2"))) + 1)
+  ) %>%
+  ungroup() %>%
+
+  ## Attention and proicessing speed
+  rowwise() %>%
+  mutate(
+    n_ap_CRspv = log(N_CRspv + 1),
+    n_ap_TMTat = -1 * log(N_TMTAt + 1),
+    n_ap_Strt1 = -1 * log(N_Strt1 + 1),
+    n_ap_Strt2 = -1 * log(N_Strt2 + 1),
+    n_ap_LDST_90 = N_LDST_90,
+  ) %>%
+  ungroup() %>%
+
+  ## Language
+  rowwise() %>%
+  mutate(
+    n_la_FL60 = log(N_FL60 + 1),
+    n_la_Vatben = log(N_Vatben +1)
+  ) %>%
+  ungroup() %>%
+
+  ## Visual-spatial functioning
+  rowwise() %>%
+  mutate(
+    n_vp_NumLoc = log(N_NumLoc + 1),
+    n_vp_FraLet = log(N_FraLet + 1)
+  ) %>%
+  ungroup()
+  
+
+
+data_final <- data_tmp %>%
+  
+  ### Memory
+  mutate(
+    n_me_WT_sum_z  = as.numeric(scale(n_me_WT_sum)),
+    n_me_delayed_z  = as.numeric(scale(n_me_delayed)),
+    n_me_recognition_z = as.numeric(scale(n_me_recognition)),
+    n_me_vata_z  = as.numeric(scale(n_me_vata))
+  ) %>%
+  
+  rowwise() %>%
+  mutate(n_memory_1_z = mean(c_across(c(n_me_WT_sum_z, n_me_delayed_z, n_me_recognition_z)),na.rm = TRUE)) %>%
+  
+  mutate(n_memory_z = mean(c_across(cols = c(n_memory_1_z, n_me_vata_z)), na.rm = TRUE)) %>%
+  
+  mutate(na_count_memory = rowSums(is.na(across(c("n_me_WT_sum_z", "n_me_delayed_z", "n_me_recognition_z", "n_me_vata_z"))))) %>%
+  ungroup() %>%
+  
+    
+  ### Executive functioning
+  mutate(
+    n_ef_FL_sum_z      = as.numeric(scale(n_ef_FL_sum)),
+    n_ef_TMT_index_z     = as.numeric(scale(n_ef_TMT_index)),
+    n_ef_Strt_index_z = as.numeric(scale(n_ef_Strt_index))
+  ) %>%
+  
+  rowwise() %>%
+  mutate(n_executive_z = mean(c_across(cols = c(n_ef_FL_sum_z, n_ef_Strt_index_z)), na.rm = TRUE)) %>%
+  mutate(na_count_executive = rowSums(is.na(across(c("n_ef_FL_sum_z", "n_ef_TMT_index_z", "n_ef_Strt_index_z"))))) %>%
+  ungroup() %>%
+  
+  
+  ### Attention
+  mutate(
+    n_ap_CRspv_z      = as.numeric(scale(n_ap_CRspv)),
+    n_ap_TMTat_z     = as.numeric(scale(n_ap_TMTat)),
+    n_ap_Strt1_z = as.numeric(scale(n_ap_Strt1)),
+    n_ap_Strt2_z = as.numeric(scale(n_ap_Strt2))
+  ) %>%
+  
+  rowwise() %>%
+  mutate(n_attsp_z = mean(c_across(cols = c(n_ap_CRspv_z, n_ap_TMTat_z, n_ap_Strt1_z,n_ap_Strt2_z)), na.rm = TRUE)) %>%
+  mutate(na_count_attention = rowSums(is.na(across(c("n_ap_CRspv_z", "n_ap_TMTat_z", "n_ap_Strt1_z","n_ap_Strt2_z"))))) %>%
+  ungroup() %>%
+  
+  ### Language
+  mutate(
+    n_la_FL60_z      = as.numeric(scale(n_la_FL60)),
+    n_la_Vatben_z     = as.numeric(scale(n_la_Vatben))
+  ) %>%
+  
+  rowwise() %>%
+  mutate(n_language_z = mean(c_across(cols = c(n_la_FL60_z, n_la_Vatben_z)), na.rm = TRUE)) %>%
+  mutate(na_count_language = rowSums(is.na(across(c("n_la_FL60_z", "n_la_Vatben_z"))))) %>%
+  ungroup() %>%
+  
+  ### Visualspatial functioning
+  mutate(
+    n_vp_NumLoc_z      = as.numeric(scale(n_vp_NumLoc)),
+    n_vp_FraLet_z     = as.numeric(scale(n_vp_FraLet))
+  ) %>%
+  
+  rowwise() %>%
+  mutate(n_visualspatial_z = mean(c_across(cols = c(n_vp_NumLoc_z, n_vp_FraLet_z)), na.rm = TRUE)) %>%
+  mutate(na_count_visualspatial = rowSums(is.na(across(c("n_vp_NumLoc_z", "n_vp_FraLet_z"))))) %>%
+  ungroup()
+
+
+C1_domains_Annebet <- data_final %>%
+  mutate(Diagnosis_N = case_when(
+    D_diagnosis == "SCD" & amyloid_status == "A-" ~ "SCD(A-)",
+    D_diagnosis == "AD" & amyloid_status == "A+" ~ "AD(A+)",
+    D_diagnosis == "FTD" & amyloid_status == "A-" ~ "FTD(A-)",
+    D_diagnosis == "FTD" & amyloid_status == "A+" ~ "FTD(A+)",
+    D_diagnosis == "DLB" & amyloid_status == "A-" ~ "DLB(A-)",
+    D_diagnosis == "DLB" & amyloid_status == "A+" ~ "DLB(A+)",
+  ))
+
+save(C1_domains_Annebet,file = "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/C1_domains_Annebet_no_imputation.Rdata")
+
+
+
+table(C1_domains_Annebet$D_diagnosis[!C1_domains_Annebet$APOE_status == "Missing"],C1_domains_Annebet$amyloid_status[!C1_domains_Annebet$APOE_status == "Missing"])
+
+
+#view(C1_domains_Annebet[C1_domains_Annebet$Diagnosis_N == "DLB(A+)",c("n_memory_z","N_TMTAt","n_attsp_z","n_language_z")])
+```
+
+# S-Table 2: neuropsychological tests missing report
+```{r}
+load("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/C1_domains_Annebet_no_imputation.Rdata")
+
+data_ADC_analysis = C1_domains_Annebet
+
+data_ADC_analysis_cog <- data_ADC_analysis %>%
+  mutate(Diagnosis_N = case_when(
+    D_diagnosis == "SCD" & amyloid_status == "A-" ~ "SCD(A-)",
+    D_diagnosis == "AD" & amyloid_status == "A+" ~ "AD(A+)",
+    D_diagnosis == "FTD" & amyloid_status == "A-" ~ "FTD(A-)",
+    D_diagnosis == "FTD" & amyloid_status == "A+" ~ "FTD(A+)",
+    D_diagnosis == "DLB" & amyloid_status == "A-" ~ "DLB(A-)",
+    D_diagnosis == "DLB" & amyloid_status == "A+" ~ "DLB(A+)",
+  )) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("SCD(A-)","AD(A+)","FTD(A-)","FTD(A+)","DLB(A-)","DLB(A+)"))) %>%
+  mutate(across(all_of(c("V_MMSE")), scale)) %>%
+  filter(!I_ID == 3329)
+
+
+missing_report(data_ADC_analysis_cog[,c("N_15WT1","N_15WT2","N_15WT3","N_15WT4","N_15WT5","N_15WTui","N_15WTvn","N_15WTvp","N_VATA1","N_VATA2")])
+missing_report(data_ADC_analysis_cog[,c("N_FLD","N_FLA","N_FLT","N_Strt1","N_Strt2","N_Strt3")])
+missing_report(data_ADC_analysis_cog[,c("N_CRspv","N_TMTAt","N_Strt1","N_Strt2")])
+
+
+missing_report(data_ADC_analysis_cog[,c("n_vp_NumLoc_z","n_vp_FraLet_z")])
+missing_report(data_ADC_analysis_cog[data_ADC_analysis_cog$D_diagnosis == "DLB",c("n_vp_NumLoc_z","n_vp_FraLet_z")])
+```
+
+# Figure 1: radar plot
+```{r}
+load("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/C1_domains_Annebet_no_imputation.Rdata")
+
+data_ADC_analysis <- C1_domains_Annebet
+table(data_ADC_analysis$D_diagnosis,data_ADC_analysis$amyloid_status)
+
+data_ADC_analysis_cog <- data_ADC_analysis %>%
+  mutate(Diagnosis_N = case_when(
+    D_diagnosis == "SCD" & amyloid_status == "A-" ~ "SCD(A-)",
+    D_diagnosis == "AD" & amyloid_status == "A+" ~ "AD(A+)",
+    D_diagnosis == "FTD" & amyloid_status == "A-" ~ "FTD(A-)",
+    D_diagnosis == "FTD" & amyloid_status == "A+" ~ "FTD(A+)",
+    D_diagnosis == "DLB" & amyloid_status == "A-" ~ "DLB(A-)",
+    D_diagnosis == "DLB" & amyloid_status == "A+" ~ "DLB(A+)",
+  )) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("SCD(A-)","AD(A+)","FTD(A-)","FTD(A+)","DLB(A-)","DLB(A+)"))) %>%
+  mutate(across(all_of(c("V_MMSE")), scale)) %>%
+  filter(!I_ID == 3329)
+
+
+data_N_A_analysis_AD <- data_ADC_analysis_cog %>% filter(D_diagnosis == "AD") 
+
+# descrTable(Diagnosis_N ~amyloid_age+Sex+Edu+APOE_status+V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z,
+#           include.miss = TRUE,data_ADC_analysis_cog,max.ylev = 7,show.p.overall = FALSE,show.p.mul = FALSE)
+
+# export2xls(table, "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/plots_cognitive_domains/table.xlsx", which.table="descr", nmax = TRUE, nmax.method = 1)
+
+
+################################ FTD & DLB ################################ 
+data_FTD_minus <- data.frame(
+  Global = c(1, -1, 0.09,-0.06),
+  Memory = c(1, -1, 0.17,-0.15),
+  Executive = c(1, -1, 0.34,-0.32),
+  Attention = c(1, -1, -0.17,-0.28),
+  Language = c(1, -1, -0.40,-0.65)
+)
+rownames(data_FTD_minus) <- c("Max", "Min","FTD(A-)","FTD(A+)")
+
+
+
+data_DLB_minus <- data.frame(
+  Global = c(1, -1, 0.02,-0.29),
+  Memory = c(1, -1, 0.13,-0.10),
+  Executive = c(1, -1, -0.55,-0.52),
+  Attention = c(1, -1, -0.59,-0.74),
+  Language = c(1, -1, 0.02,-0.27)
+  
+)
+rownames(data_DLB_minus) <- c("Max", "Min","DLB(A-)","DLB(A+)")
+
+library(fmsb)
+
+create_beautiful_radarchart <- function(data, color = NULL,title = NULL){
+  seg <- 4
+  series_idx <- 3:nrow(data)
+  series_colors <- rep_len(color, length(series_idx))
+  theta <- seq(90, 450, length.out = ncol(data) + 1)[seq_len(ncol(data))] * pi / 180
+  xx <- cos(theta)
+  yy <- sin(theta)
+
+  radarchart(
+    data,
+    axistype = 1,
+    pty = 16,
+    pcol = series_colors,
+    pfcol = scales::alpha(series_colors, 0.12),
+    plty = 1,
+    plwd = 3.8,
+    cglcol = "#B0B0B0",
+    cglty = 1,
+    cglwd = 1.8,
+    axislabcol = "#2F2F2F",
+    calcex = 1.2,
+    vlabels = rep("", ncol(data)),
+    vlcex = 1.3,
+    caxislabels = c(-1, -0.5, 0, 0.5, 1),
+    title = title
+  )
+
+  text(xx * 1.30, yy * 1.30, labels = colnames(data), cex = 1.3, font = 2, col = "#141414")
+
+  for (i in seq_along(series_idx)) {
+    scale <- 1 / (seg + 1) +
+      (as.numeric(data[series_idx[i], ]) - as.numeric(data[2, ])) /
+      (as.numeric(data[1, ]) - as.numeric(data[2, ])) * seg / (seg + 1)
+
+    points(xx * scale, yy * scale, pch = 21, bg = "white", col = "white", cex = 3.2)
+    points(xx * scale, yy * scale, pch = 21, bg = series_colors[i], col = series_colors[i], lwd = 1.4, cex = 2.2)
+  }
+}
+
+draw_radar_legend <- function(labels, colors) {
+  legend(
+    x = "bottom",
+    inset = c(0, -0.22),
+    legend = labels,
+    horiz = TRUE,
+    bty = "n",
+    pch = 21,
+    pt.bg = colors,
+    col = colors,
+    text.col = "#1F1F1F",
+    cex = 1.45,
+    pt.cex = 2.6
+  )
+}
+
+save_single_radar <- function(file, data, color) {
+  pdf(file, width = 6.8, height = 6.0)
+  op <- par(no.readonly = TRUE)
+  par(mfrow = c(1, 1), mar = c(4.8, 1.1, 1.3, 1.1), xpd = NA)
+  create_beautiful_radarchart(data, color = color)
+  draw_radar_legend(rownames(data[-c(1, 2), ]), color)
+  par(op)
+  dev.off()
+}
+
+
+pdf("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/Figure1/FTD_DLB_radar_comparison.pdf", width = 11.6, height = 6.2)
+op <- par(no.readonly = TRUE)
+par(mfrow = c(1, 2), mar = c(4.8, 1.2, 1.3, 1.2), xpd = NA)
+
+create_beautiful_radarchart(data_FTD_minus, color = c("#73929B", "#C06C84"))
+draw_radar_legend(rownames(data_FTD_minus[-c(1, 2), ]), c("#73929B", "#C06C84"))
+
+create_beautiful_radarchart(data_DLB_minus, color = c("#73929B", "#C06C84"))
+draw_radar_legend(rownames(data_DLB_minus[-c(1, 2), ]), c("#73929B", "#C06C84"))
+
+par(op)
+dev.off()
+
+
+
+
+################################ SCD groups ################################ 
+table <- descrTable(D_diagnosis ~amyloid_age+Edu+APOE_status+V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z,
+          include.miss = TRUE,data_ADC_analysis_cog,max.ylev = 7,show.p.overall = FALSE,show.p.mul = FALSE)
+
+#export2csv(table, "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/plots_cognitive_domains/table.csv", which.table="descr", sep=",", nmax = TRUE, nmax.method = 1)
+
+
+data_SCD <- data.frame(
+  Global = c(1, -1, 0.83),
+  Memory = c(1, -1, 0.74),
+  Executive = c(1, -1, 0.47),
+  Attention = c(1, -1, 0.59),
+  Language = c(1, -1, 0.53)
+)
+rownames(data_SCD) <- c("Max", "Min","CU")
+
+save_single_radar(
+  "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/Figure1/radar_comparison_SCD.pdf",
+  data_SCD,
+  c("grey55")
+)
+
+
+
+data_AD <- data.frame(
+  Global = c(1, -1, -0.53),
+  Memory = c(1, -1, -0.58),
+  Executive = c(1, -1, -0.36),
+  Attention = c(1, -1, -0.42),
+  Language = c(1, -1, -0.26)
+)
+rownames(data_AD) <- c("Max", "Min","AD")
+
+save_single_radar(
+  "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/Figure1/radar_comparison_AD.pdf",
+  data_AD,
+  c("grey55")
+)
+
+
+
+
+data_FTD <- data.frame(
+  Global = c(1, -1, 0.06),
+  Memory = c(1, -1, 0.11),
+  Executive = c(1, -1, -0.34),
+  Attention = c(1, -1, -0.19),
+  Language = c(1, -1, -0.45)
+)
+rownames(data_FTD) <- c("Max", "Min","FTD")
+
+save_single_radar(
+  "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/Figure1/radar_comparison_FTD.pdf",
+  data_FTD,
+  c("grey55")
+)
+
+
+data_DLB <- data.frame(
+  Global = c(1, -1, -0.15),
+  Memory = c(1, -1, 0.01),
+  Executive = c(1, -1, -0.53),
+  Attention = c(1, -1, -0.67),
+  Language = c(1, -1, -0.14)
+)
+rownames(data_DLB) <- c("Max", "Min","DLB")
+
+save_single_radar(
+  "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/Figure1/radar_comparison_DLB.pdf",
+  data_DLB,
+  c("grey55")
+)
+
+
+
+################################  check significance 1 ################################ 
+library(bruceR)
+data_ADC_test <- data_ADC_analysis_cog %>% 
+  filter(D_diagnosis %in% c("SCD","DLB"))
+# V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z 
+
+
+results = MASS::rlm(n_language_z ~ D_diagnosis+amyloid_age+Sex+Edu,data =data_ADC_test)
+coef_table <- summary(results)$coefficients
+results_df <- as.data.frame(coef_table)
+colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+robust_test = sfsmisc::f.robftest(results,var = names(results$coefficients)[2])
+
+p_two <- robust_test$p.value
+coef_val <- results_df$Estimate[2]  # or however you extract the beta
+std_val <- results_df$Std_Error[2]
+# One-sided p-values in both directions
+p_one_minus <- p_two / 2      # H1: effect < 0
+p_one_plus  <- p_two / 2      # H1: effect > 0
+
+# Keep the one in the "wrong" direction as 1
+if (coef_val < 0) {
+    p_one_plus <- 1
+} else if (coef_val > 0) {
+    p_one_minus <- 1
+}
+paste(coef_val, std_val, p_one_minus, p_one_plus)
+
+
+
+
+################################  check significance ################################ 
+library(bruceR)
+data_FTD <- data_ADC_analysis_cog %>% 
+  filter(Diagnosis_N %in% c("DLB(A-)","DLB(A+)")) %>% 
+  mutate(Diagnosis_N  = factor(Diagnosis_N, c("DLB(A-)","DLB(A+)")))
+# V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z 
+
+
+results = MASS::rlm(n_language_z ~ Diagnosis_N+amyloid_age+Sex+Edu,data =data_FTD)
+coef_table <- summary(results)$coefficients
+results_df <- as.data.frame(coef_table)
+colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+robust_test = sfsmisc::f.robftest(results,var = names(results$coefficients)[2])
+
+p_two <- robust_test$p.value
+coef_val <- results_df$Estimate[2]  # or however you extract the beta
+std_val <- results_df$Std_Error[2]
+# One-sided p-values in both directions
+p_one_minus <- p_two / 2      # H1: effect < 0
+p_one_plus  <- p_two / 2      # H1: effect > 0
+
+# Keep the one in the "wrong" direction as 1
+if (coef_val < 0) {
+    p_one_plus <- 1
+} else if (coef_val > 0) {
+    p_one_minus <- 1
+}
+paste(coef_val, std_val, p_one_minus, p_one_plus)
+```
+
+# S-Figure 5: radar plot with spatial functioning
+```{r}
+load("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/C1_domains_Annebet_no_imputation.Rdata")
+
+data_ADC_analysis <- C1_domains_Annebet
+table(data_ADC_analysis$D_diagnosis,data_ADC_analysis$amyloid_status)
+
+data_ADC_analysis_cog <- data_ADC_analysis %>%
+  mutate(Diagnosis_N = case_when(
+    D_diagnosis == "SCD" & amyloid_status == "A-" ~ "SCD(A-)",
+    D_diagnosis == "AD" & amyloid_status == "A+" ~ "AD(A+)",
+    D_diagnosis == "FTD" & amyloid_status == "A-" ~ "FTD(A-)",
+    D_diagnosis == "FTD" & amyloid_status == "A+" ~ "FTD(A+)",
+    D_diagnosis == "DLB" & amyloid_status == "A-" ~ "DLB(A-)",
+    D_diagnosis == "DLB" & amyloid_status == "A+" ~ "DLB(A+)",
+  )) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("SCD(A-)","AD(A+)","FTD(A-)","FTD(A+)","DLB(A-)","DLB(A+)"))) %>%
+  mutate(across(all_of(c("V_MMSE")), scale)) %>%
+  filter(!I_ID == 3329)
+
+
+data_N_A_analysis_AD <- data_ADC_analysis_cog %>% filter(D_diagnosis == "AD") 
+
+table <- descrTable(Diagnosis_N ~amyloid_age+Sex+Edu+APOE_status+V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z+n_visualspatial_z,
+          include.miss = TRUE,data_ADC_analysis_cog,max.ylev = 7,show.p.overall = FALSE,show.p.mul = FALSE)
+
+
+descrTable(D_diagnosis ~amyloid_age+Sex+Edu+APOE_status+V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z+n_visualspatial_z,
+          include.miss = TRUE,data_ADC_analysis_cog,max.ylev = 7,show.p.overall = FALSE,show.p.mul = FALSE)
+
+# export2xls(table, "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/plots_cognitive_domains/table.xlsx", which.table="descr", nmax = TRUE, nmax.method = 1)
+
+
+
+################################ DLB(A-) & DLB(A+) ################################ 
+data_DLB_minus <- data.frame(
+  Global = c(1, -1, 0.02,-0.29),
+  Memory = c(1, -1, 0.13,-0.10),
+  Executive = c(1, -1, -0.55,-0.52),
+  Attention = c(1, -1, -0.59,-0.74),
+  Language = c(1, -1, 0.02,-0.27),
+  Visual_spatial = c(1, -1, -0.22, -0.38)
+  
+)
+rownames(data_DLB_minus) <- c("Max", "Min","DLB(A-)","DLB(A+)")
+
+library(fmsb)
+create_beautiful_radarchart <- function(data, color = NULL,title = NULL){
+  seg <- 4
+  series_idx <- 3:nrow(data)
+  series_colors <- rep_len(color, length(series_idx))
+  theta <- seq(90, 450, length.out = ncol(data) + 1)[seq_len(ncol(data))] * pi / 180
+  xx <- cos(theta)
+  yy <- sin(theta)
+
+  radarchart(
+    data,
+    axistype = 1,
+    pty = 16,
+    pcol = series_colors,
+    pfcol = scales::alpha(series_colors, 0.12),
+    plty = 1,
+    plwd = 3.8,
+    cglcol = "#B0B0B0",
+    cglty = 1,
+    cglwd = 1.8,
+    axislabcol = "#2F2F2F",
+    calcex = 1.2,
+    vlabels = rep("", ncol(data)),
+    vlcex = 1.3,
+    caxislabels = c(-1, -0.5, 0, 0.5, 1),
+    title = title
+  )
+
+  text(xx * 1.30, yy * 1.30, labels = colnames(data), cex = 1.3, font = 2, col = "#141414")
+
+  for (i in seq_along(series_idx)) {
+    scale <- 1 / (seg + 1) +
+      (as.numeric(data[series_idx[i], ]) - as.numeric(data[2, ])) /
+      (as.numeric(data[1, ]) - as.numeric(data[2, ])) * seg / (seg + 1)
+
+    points(xx * scale, yy * scale, pch = 21, bg = "white", col = "white", cex = 3.2)
+    points(xx * scale, yy * scale, pch = 21, bg = series_colors[i], col = series_colors[i], lwd = 1.4, cex = 2.2)
+  }
+}
+
+draw_radar_legend <- function(labels, colors) {
+  legend(
+    x = "bottom",
+    inset = c(0, -0.22),
+    legend = labels,
+    horiz = TRUE,
+    bty = "n",
+    pch = 21,
+    pt.bg = colors,
+    col = colors,
+    text.col = "#1F1F1F",
+    cex = 1.45,
+    pt.cex = 2.6
+  )
+}
+
+save_single_radar <- function(file, data, color) {
+  pdf(file, width = 6.8, height = 6.0)
+  op <- par(no.readonly = TRUE)
+  par(mfrow = c(1, 1), mar = c(4.8, 1.1, 1.3, 1.1), xpd = NA)
+  create_beautiful_radarchart(data, color = color)
+  draw_radar_legend(rownames(data[-c(1, 2), ]), color)
+  par(op)
+  dev.off()
+}
+
+
+save_single_radar(
+  "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/S_Figure5/radar_comparison_DLB_A_status.pdf",
+  data_DLB_minus,
+  c("#73929B", "#C06C84")
+)
+
+
+################################ SCD groups ################################ 
+table <- descrTable(D_diagnosis ~amyloid_age+Edu+APOE_status+V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z,
+          include.miss = TRUE,data_ADC_analysis_cog,max.ylev = 7,show.p.overall = FALSE,show.p.mul = FALSE)
+
+data_SCD <- data.frame(
+  Global = c(1, -1, 0.83),
+  Memory = c(1, -1, 0.74),
+  Executive = c(1, -1, 0.47),
+  Attention = c(1, -1, 0.59),
+  Language = c(1, -1, 0.53),
+  Visual_spatial = c(1, -1, 0.40)
+)
+rownames(data_SCD) <- c("Max", "Min","CU")
+
+save_single_radar(
+  "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/S_Figure5/radar_comparison_SCD.pdf",
+  data_SCD,
+  c("grey55")
+)
+
+
+data_DLB <- data.frame(
+  Global = c(1, -1, -0.15),
+  Memory = c(1, -1, 0.01),
+  Executive = c(1, -1, -0.53),
+  Attention = c(1, -1, -0.67),
+  Language = c(1, -1, -0.14),
+  Visual_spatial = c(1, -1, -0.31)
+)
+rownames(data_DLB) <- c("Max", "Min","DLB")
+
+save_single_radar(
+  "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/S_Figure5/radar_comparison_DLB.pdf",
+  data_DLB,
+  c("grey55")
+)
+
+
+
+
+################################  check significance 1 ################################ 
+library(bruceR)
+data_ADC_test <- data_ADC_analysis_cog %>% 
+  filter(D_diagnosis %in% c("SCD","DLB"))
+# V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z 
+
+
+results = MASS::rlm(n_visualspatial_z ~ D_diagnosis+amyloid_age+Sex+Edu,data =data_ADC_test)
+coef_table <- summary(results)$coefficients
+results_df <- as.data.frame(coef_table)
+colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+robust_test = sfsmisc::f.robftest(results,var = names(results$coefficients)[2])
+
+p_two <- robust_test$p.value
+coef_val <- results_df$Estimate[2]  # or however you extract the beta
+std_val <- results_df$Std_Error[2]
+# One-sided p-values in both directions
+p_one_minus <- p_two / 2      # H1: effect < 0
+p_one_plus  <- p_two / 2      # H1: effect > 0
+
+# Keep the one in the "wrong" direction as 1
+if (coef_val < 0) {
+    p_one_plus <- 1
+} else if (coef_val > 0) {
+    p_one_minus <- 1
+}
+paste(coef_val, std_val, p_one_minus, p_one_plus)
+
+
+
+
+################################  check significance ################################ 
+library(bruceR)
+data_FTD <- data_ADC_analysis_cog %>% 
+  filter(Diagnosis_N %in% c("DLB(A-)","DLB(A+)")) %>% 
+  mutate(Diagnosis_N  = factor(Diagnosis_N, c("DLB(A-)","DLB(A+)")))
+# V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z 
+
+
+results = MASS::rlm(n_language_z ~ Diagnosis_N+amyloid_age+Sex+Edu,data =data_FTD)
+coef_table <- summary(results)$coefficients
+results_df <- as.data.frame(coef_table)
+colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+robust_test = sfsmisc::f.robftest(results,var = names(results$coefficients)[2])
+
+p_two <- robust_test$p.value
+coef_val <- results_df$Estimate[2]  # or however you extract the beta
+std_val <- results_df$Std_Error[2]
+# One-sided p-values in both directions
+p_one_minus <- p_two / 2      # H1: effect < 0
+p_one_plus  <- p_two / 2      # H1: effect > 0
+
+# Keep the one in the "wrong" direction as 1
+if (coef_val < 0) {
+    p_one_plus <- 1
+} else if (coef_val > 0) {
+    p_one_minus <- 1
+}
+paste(coef_val, std_val, p_one_minus, p_one_plus)
+```
+
+
+# S-Figure 9: APOE corrected radar plot
+```{r}
+load("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/C1_domains_Annebet_no_imputation.Rdata")
+
+data_ADC_analysis <- C1_domains_Annebet
+table(data_ADC_analysis$D_diagnosis,data_ADC_analysis$amyloid_status)
+
+data_ADC_analysis_cog <- data_ADC_analysis %>%
+  mutate(Diagnosis_N = case_when(
+    D_diagnosis == "SCD" & amyloid_status == "A-" ~ "SCD(A-)",
+    D_diagnosis == "AD" & amyloid_status == "A+" ~ "AD(A+)",
+    D_diagnosis == "FTD" & amyloid_status == "A-" ~ "FTD(A-)",
+    D_diagnosis == "FTD" & amyloid_status == "A+" ~ "FTD(A+)",
+    D_diagnosis == "DLB" & amyloid_status == "A-" ~ "DLB(A-)",
+    D_diagnosis == "DLB" & amyloid_status == "A+" ~ "DLB(A+)",
+  )) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("SCD(A-)","AD(A+)","FTD(A-)","FTD(A+)","DLB(A-)","DLB(A+)"))) %>%
+  mutate(across(all_of(c("V_MMSE")), scale)) %>%
+  filter(!I_ID == 3329)
+
+
+data_N_A_analysis_AD <- data_ADC_analysis_cog %>% filter(D_diagnosis == "AD") 
+
+table <- descrTable(Diagnosis_N ~amyloid_age+Sex+Edu+APOE_status+V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z+n_visualspatial_z,
+          include.miss = TRUE,data_ADC_analysis_cog,max.ylev = 7,show.p.overall = FALSE,show.p.mul = FALSE)
+
+
+descrTable(D_diagnosis ~amyloid_age+Sex+Edu+APOE_status+V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z+n_visualspatial_z,
+          include.miss = TRUE,data_ADC_analysis_cog,max.ylev = 7,show.p.overall = FALSE,show.p.mul = FALSE)
+
+# export2xls(table, "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/plots_cognitive_domains/table.xlsx", which.table="descr", nmax = TRUE, nmax.method = 1)
+
+
+
+################################ DLB(A-) & DLB(A+) ################################ 
+data_DLB_minus <- data.frame(
+  Global = c(1, -1, 0.02,-0.29),
+  Memory = c(1, -1, 0.13,-0.10),
+  Executive = c(1, -1, -0.55,-0.52),
+  Attention = c(1, -1, -0.59,-0.74),
+  Language = c(1, -1, 0.02,-0.27),
+  Visual_spatial = c(1, -1, -0.22, -0.38)
+  
+)
+rownames(data_DLB_minus) <- c("Max", "Min","DLB(A-)","DLB(A+)")
+
+library(fmsb)
+create_beautiful_radarchart <- function(data, color = NULL,title = NULL){
+  seg <- 4
+  series_idx <- 3:nrow(data)
+  series_colors <- rep_len(color, length(series_idx))
+  theta <- seq(90, 450, length.out = ncol(data) + 1)[seq_len(ncol(data))] * pi / 180
+  xx <- cos(theta)
+  yy <- sin(theta)
+
+  radarchart(
+    data,
+    axistype = 1,
+    pty = 16,
+    pcol = series_colors,
+    pfcol = scales::alpha(series_colors, 0.12),
+    plty = 1,
+    plwd = 3.8,
+    cglcol = "#B0B0B0",
+    cglty = 1,
+    cglwd = 1.8,
+    axislabcol = "#2F2F2F",
+    calcex = 1.2,
+    vlabels = rep("", ncol(data)),
+    vlcex = 1.3,
+    caxislabels = c(-1, -0.5, 0, 0.5, 1),
+    title = title
+  )
+
+  text(xx * 1.30, yy * 1.30, labels = colnames(data), cex = 1.3, font = 2, col = "#141414")
+
+  for (i in seq_along(series_idx)) {
+    scale <- 1 / (seg + 1) +
+      (as.numeric(data[series_idx[i], ]) - as.numeric(data[2, ])) /
+      (as.numeric(data[1, ]) - as.numeric(data[2, ])) * seg / (seg + 1)
+
+    points(xx * scale, yy * scale, pch = 21, bg = "white", col = "white", cex = 3.2)
+    points(xx * scale, yy * scale, pch = 21, bg = series_colors[i], col = series_colors[i], lwd = 1.4, cex = 2.2)
+  }
+}
+
+draw_radar_legend <- function(labels, colors) {
+  legend(
+    x = "bottom",
+    inset = c(0, -0.22),
+    legend = labels,
+    horiz = TRUE,
+    bty = "n",
+    pch = 21,
+    pt.bg = colors,
+    col = colors,
+    text.col = "#1F1F1F",
+    cex = 1.45,
+    pt.cex = 2.6
+  )
+}
+
+save_single_radar <- function(file, data, color) {
+  pdf(file, width = 6.8, height = 6.0)
+  op <- par(no.readonly = TRUE)
+  par(mfrow = c(1, 1), mar = c(4.8, 1.1, 1.3, 1.1), xpd = NA)
+  create_beautiful_radarchart(data, color = color)
+  draw_radar_legend(rownames(data[-c(1, 2), ]), color)
+  par(op)
+  dev.off()
+}
+
+
+save_single_radar(
+  "/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Rebuttal/results/S_Figure5/radar_comparison_DLB_A_status.pdf",
+  data_DLB_minus,
+  c("#73929B", "#C06C84")
+)
+
+
+################################  check significance ################################ 
+library(bruceR)
+data_FTD <- data_ADC_analysis_cog %>% 
+  filter(Diagnosis_N %in% c("DLB(A-)","DLB(A+)")) %>% 
+  mutate(Diagnosis_N  = factor(Diagnosis_N, c("DLB(A-)","DLB(A+)")))
+# V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z 
+
+
+results = MASS::rlm(n_language_z ~ Diagnosis_N+amyloid_age+Sex+Edu+APOE_status,data =data_FTD)
+coef_table <- summary(results)$coefficients
+results_df <- as.data.frame(coef_table)
+colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+robust_test = sfsmisc::f.robftest(results,var = names(results$coefficients)[2])
+
+p_two <- robust_test$p.value
+coef_val <- results_df$Estimate[2]  # or however you extract the beta
+std_val <- results_df$Std_Error[2]
+# One-sided p-values in both directions
+p_one_minus <- p_two / 2      # H1: effect < 0
+p_one_plus  <- p_two / 2      # H1: effect > 0
+
+# Keep the one in the "wrong" direction as 1
+if (coef_val < 0) {
+    p_one_plus <- 1
+} else if (coef_val > 0) {
+    p_one_minus <- 1
+}
+paste(coef_val, std_val, p_one_minus, p_one_plus)
+
+```
+
+
+```{r}
+# Figure 1: radar plot
+
+library(bruceR)
+data_ADC_test <- data_ADC_analysis_cog %>% 
+  filter(D_diagnosis %in% c("SCD","FTD"))
+# V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z 
+
+
+results = MASS::rlm(V_MMSE ~ D_diagnosis+amyloid_age+Sex+Edu,data =data_ADC_test)
+coef_table <- summary(results)$coefficients
+results_df <- as.data.frame(coef_table)
+colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+robust_test = sfsmisc::f.robftest(results,var = names(results$coefficients)[2])
+
+p_two <- robust_test$p.value
+coef_val <- results_df$Estimate[2]  # or however you extract the beta
+std_val <- results_df$Std_Error[2]
+# One-sided p-values in both directions
+p_one_minus <- p_two / 2      # H1: effect < 0
+p_one_plus  <- p_two / 2      # H1: effect > 0
+
+# Keep the one in the "wrong" direction as 1
+if (coef_val < 0) {
+    p_one_plus <- 1
+} else if (coef_val > 0) {
+    p_one_minus <- 1
+}
+paste(coef_val, std_val, p_one_minus, p_one_plus)
+```
+
+
+
+# Table1: average grey matter volume; average subcortical volume
+```{r}
+load("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/C1_domains_Annebet_no_imputation.Rdata")
+
+names_Vol <- c(names(Freesurfer_output_718)[240:273],names(Freesurfer_output_718)[276:309])
+names_Sub_2<- c("lh_Thalamus_volume","lh_Caudate_volume","lh_Putamen_volume","lh_Pallidum_volume","lh_Hippocampus_volume","lh_Amygdala_volume",
+              "lh_Accumbens_area_volume","lh_choroid_plexus_volume",
+              "rh_Thalamus_volume","rh_Caudate_volume","rh_Putamen_volume","rh_Pallidum_volume","rh_Hippocampus_volume","rh_Amygdala_volume",
+              "rh_Accumbens_area_volume","rh_choroid_plexus_volume")
+
+
+data_ADC_analysis <- C1_domains_Annebet
+table(data_ADC_analysis$D_diagnosis,data_ADC_analysis$amyloid_status)
+
+data_ADC_analysis_cog <- data_ADC_analysis %>%
+  mutate(Diagnosis_N = case_when(
+    D_diagnosis == "SCD" & amyloid_status == "A-" ~ "SCD(A-)",
+    D_diagnosis == "AD" & amyloid_status == "A+" ~ "AD(A+)",
+    D_diagnosis == "FTD" & amyloid_status == "A-" ~ "FTD(A-)",
+    D_diagnosis == "FTD" & amyloid_status == "A+" ~ "FTD(A+)",
+    D_diagnosis == "DLB" & amyloid_status == "A-" ~ "DLB(A-)",
+    D_diagnosis == "DLB" & amyloid_status == "A+" ~ "DLB(A+)",
+  )) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("SCD(A-)","AD(A+)","FTD(A-)","FTD(A+)","DLB(A-)","DLB(A+)"))) %>%
+  mutate(across(all_of(c("V_MMSE")), scale)) %>%
+  filter(!I_ID == 3329) %>%
+  rowwise() %>%
+  mutate(
+    mean_gm_volume = mean(c_across(all_of(names_Vol)), na.rm = TRUE),
+    mean_subcortical_volume = mean(c_across(all_of(names_Sub_2)), na.rm = TRUE)) %>%
+  ungroup()
+
+data_ADC_analysis_tmp <- data_ADC_analysis_cog %>% filter(Diagnosis_N %in% c("DLB(A-)","DLB(A+)"))
+descrTable(Diagnosis_N ~amyloid_age+Sex+Edu+mean_gm_volume + mean_subcortical_volume,
+          include.miss = TRUE,data_ADC_analysis_tmp,max.ylev = 7,show.p.overall = TRUE)
+
+
+
+data_test <- data_ADC_analysis_cog %>%
+  filter(Diagnosis_N %in% c("FTD(A-)","FTD(A+)")) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("FTD(A-)","FTD(A+)")))
+
+re_post <- data_test %>% 
+  MANOVA(dv="mean_gm_volume", between="Diagnosis_N",covariate = c("Sex","Edu")) %>%
+  EMMEANS(effect = "Diagnosis_N",
+  by = NULL,
+  contrast = "pairwise",
+  reverse = TRUE,
+  p.adjust = "none",
+  sd.pooled = NULL,
+  model.type = "multivariate",
+  digits = 3)
+
+re_post$EMMEANS
+```
+
+
+
+# Supplementary Figure 1
+```{r}
+################## Visualization:  Supplementary plot Figure1 ################## 
+data_ADC_vis <- data_ADC_analysis %>% filter(D_diagnosis %in% c("SCD","AD","DLB","FTD")) %>% 
+  select(diff_L_M,diff_L_N,diff_L_D,diff_L_V) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "task",
+    values_to = "score"
+  ) %>%
+  rename(Modalities = task,Days = score)
+
+plot_vis_time <- ggplot(data_ADC_vis, aes(x = Days, fill = Modalities)) +
+  geom_density(alpha = 0.5) +
+  coord_cartesian(xlim = c(-30, 30)) +  # adjust range as needed
+  #labs(title = "Time Interval", x = "Time Interval", y = "Density") +
+  theme_minimal() +
+  theme(text = element_text(size = 14), legend.position = "top")
+#ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_mega_copathology/plots/Figure0_time_interval.pdf",plot_vis_time,height = 8,width = 12,dpi = 300)
+
+```
+
+
+
+# Supplementary Figure 2: FTD subtypes
+```{r}
+# Create a sample data frame
+data <- data.frame(
+  category = c("A", "B", "C", "D"),
+  value = c(10, 25, 15, 50)
+)
+ 
+# Add a column for the proportion
+data$proportion <- data$value / sum(data$value)
+ 
+# Add a column for the label position
+data$label_pos <- cumsum(data$proportion) - data$proportion / 2
+ 
+# Create the pie chart
+p <- ggplot(data, aes(x = "", y = proportion, fill = category)) +
+  geom_bar(width = 1, stat = "identity", color = "white") +
+  coord_polar("y", start = 0) +
+  theme_void() + # Use a minimalist theme
+  theme(legend.position = "right") + # Place the legend on the right
+  geom_text(aes(y = label_pos, label = paste0(round(proportion * 100, 1), "%")), size = 5) + # Add percentage labels
+  labs(title = "Sample Pie Chart", fill = "Category") # Add a title and label for the legend
+
+```
+
+
+
+```{r}
+load("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/C1_domains_Annebet_no_imputation.Rdata")
+data_ADC_analysis <- C1_domains_Annebet
+
+library(dplyr)
+library(stringr)
+
+data = read_xlsx("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/subtypes_FTD_sterre_jcy.xlsx")
+
+data$Subtype = data$subtype
+unique(data$subtype)
+
+# df should contain a column named `Subtype`
+df <- data %>%
+  mutate(
+    # clean & normalize labels
+    subtype_clean = Subtype |> 
+      str_squish() |>                       # trim & collapse spaces
+      str_replace_all("\\.+$", "") |>       # drop trailing dots (e.g., "Phenocopy FTD.")
+      str_replace_all("\\s*\\+\\s*", "+"),  # normalize " + " to "+"
+    subtype_lc = str_to_lower(subtype_clean),
+    
+    # main 5-way grouping
+    ftd_group = case_when(
+      # bvFTD spectrum (incl. phenocopy, bvAD, bvFTD+PSP)
+      subtype_lc %in% c("possible bvftd","probable bvftd","definite bvftd",
+                        "phenocopy bvftd","phenocopy ftd","bvftd phenotype",
+                        "bvftd+psp","bvad")                                  ~ "bvFTD spectrum",
+      # PPA spectrum
+      subtype_lc %in% c("svppa","ass","nfvppa","ppa","ppa nno","svppa+vad")   ~ "PPA spectrum",
+      # Right temporal variant
+      subtype_lc == "rtvftd"                                                  ~ "Right temporal variant FTD",
+      # Motor/parkinsonian overlap
+      subtype_lc %in% c("ftd-als","psp","ppd","pd")                           ~ "Motor/parkinsonian overlap",
+      # Other / Unclassified / Mimics
+      subtype_lc %in% c("ftd nno","fns","psychiatrie","uitgesteld")           ~ "Other/Unclassified",
+      
+      TRUE                                                                     ~ "Other/Unclassified"
+    ),
+    
+    ftd_group_Lianne_Sterre = case_when(
+      # bvFTD spectrum (incl. phenocopy, bvAD, bvFTD+PSP)
+      subtype_lc %in% c("possible bvftd","probable bvftd","definite bvftd","bvftd+psp") ~ "bvFTD spectrum",
+      # PPA spectrum
+      subtype_lc %in% c("svppa","ass","nfvppa","ppa","ppa nno","svppa+vad")   ~ "PPA spectrum",
+      # Right temporal variant
+      subtype_lc == "rtvftd"                                                  ~ "Right temporal variant FTD",
+      # Motor/parkinsonian overlap
+      subtype_lc %in% c("FTD-ALS")                           ~ "FTD-ALS",
+      subtype_lc %in% c("PSP")                           ~ "PSP",
+      TRUE                                          ~ "Other/Unclassified"
+    )
+  )
+
+
+
+df2 <- data_ADC_analysis %>% filter(D_diagnosis == "FTD") %>% 
+  select(I_ID,D_diagnosis,amyloid_status) %>% 
+  as.data.frame() %>% mutate(I_ID = as.numeric(I_ID)) %>%
+  left_join(as.data.frame(df),by = "I_ID")
+
+
+table(df2$amyloid_status,df2$ftd_group)
+
+table(df2$amyloid_status,df2$ftd_group_Lianne_Sterre)
+
+fwrite(df2,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/subtypes_FTD_jcy.txt",sep = "\t")
+
+
+data <- as.data.frame(table(df2$ftd_group[df2$amyloid_status == "A-"])) %>% mutate(category = Var1, value = Freq)
+
+
+
+data$proportion <- data$value / sum(data$value)
+data$label_pos <- cumsum(data$proportion) - data$proportion / 2
+p1 <- ggplot(data, aes(x = "", y = proportion, fill = category)) +
+  geom_bar(width = 1, stat = "identity", color = "white") +
+  coord_polar("y", start = 0) +
+  theme_void() + # Use a minimalist theme
+  theme(legend.position = "left")  # Place the legend on the right
+  #labs(title = "Sample Pie Chart", fill = "Category") # Add a title and label for the legend
+p1
+ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/plots_flow_chart/Figure_S2_FTD_2.pdf",p1,width = 5,height = 5)
+
+
+table(df2$ftd_grou)
+prop.table(table(df2$ftd_group))
+
+prop.table(table(df2$ftd_group[df2$amyloid_status == "A-"]))
+proportions <- prop.table(table(df2$ftd_group[df2$amyloid_status == "A+"]))
+
+# Round the proportions to one decimal place and multiply by 100 to get percentages
+rounded_percentages <- round(proportions * 100, 1)
+```

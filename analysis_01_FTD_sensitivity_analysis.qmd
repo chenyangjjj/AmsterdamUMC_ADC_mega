@@ -1,0 +1,1063 @@
+---
+title: "project_ADC_mega_main"
+---
+
+```{r,include=F}
+rm(list = ls())
+library(readxl)
+library(tidyverse)
+library(ggseg)
+library(compareGroups)
+library(ggpubr)
+library(compareGroups)
+library(sjPlot)
+library(naniar)
+library(bruceR)
+library(mice)
+library(readxl)
+library(ggh4x)
+library(data.table)
+```
+
+
+```{r}
+analysis_glm_ATN <- function(data,column_predictor){
+  
+  list=c("bankssts","caudal anterior cingulate","caudal middle frontal",
+      "cuneus","entorhinal","frontal pole","fusiform","inferior parietal",
+      "inferior temporal","insula","isthmus cingulate","lateral occipital",
+      "lateral orbitofrontal","lingual","medial orbitofrontal","middle temporal",
+      "paracentral","parahippocampal","pars opercularis","pars orbitalis",
+      "pars triangularis","pericalcarine","postcentral","posterior cingulate",
+      "precentral","precuneus","rostral anterior cingulate","rostral middle frontal",
+      "superior frontal","superior parietal","superior temporal","supramarginal",
+      "temporal pole","transverse temporal")
+  list2 = str_replace_all(list," ","")
+  CT_names <- c(str_c("lh_",list2,"_volume"),str_c("rh_",list2,"_volume"))
+  DTK_Labes_For_Plot = list
+  plot_data_L = as.data.frame(DTK_Labes_For_Plot)
+  colnames(plot_data_L)[1] = "region"
+  plot_data_L$hemi="left"
+  plot_data_R = as.data.frame(DTK_Labes_For_Plot)
+  colnames(plot_data_R)[1] = "region"
+  plot_data_R$hemi="right"
+  plot_data = rbind(plot_data_L,plot_data_R)
+  plot_data$area_label = CT_names
+  plot_data$Effect=NA
+  plot_data$P_value=NA
+  attach(plot_data)
+  
+  for (im in 1:68) {
+    Region_AV1451_v1 = plot_data$area_label[im]
+    funtion_glm = paste(Region_AV1451_v1,"~",column_predictor,"+amyloid_age+Sex+Edu+eTIV")
+    results = glm(funtion_glm,family = gaussian,data =data)
+    x = summary(results)
+    P_values_GLM = x$coefficients[2,3:4]
+    plot_data$Effect[im] = x$coefficients[2,1]
+    plot_data$P_value[im] = x$coefficients[2,4]
+  }
+  
+  plot_data <- plot_data %>% 
+    mutate(highlight = ifelse(P_value < 0.05, "sig", "non_sig")) %>%
+    mutate(p_adjust = p.adjust(P_value, "fdr", n = length(P_value))) %>%
+    mutate(highlight_sig = ifelse(p_adjust < 0.05, "sig", "non_sig"))
+  
+  return(plot_data)
+}
+
+analysis_glm_ATN_robust <- function(data,column_predictor){
+  
+  list=c("bankssts","caudal anterior cingulate","caudal middle frontal",
+      "cuneus","entorhinal","frontal pole","fusiform","inferior parietal",
+      "inferior temporal","insula","isthmus cingulate","lateral occipital",
+      "lateral orbitofrontal","lingual","medial orbitofrontal","middle temporal",
+      "paracentral","parahippocampal","pars opercularis","pars orbitalis",
+      "pars triangularis","pericalcarine","postcentral","posterior cingulate",
+      "precentral","precuneus","rostral anterior cingulate","rostral middle frontal",
+      "superior frontal","superior parietal","superior temporal","supramarginal",
+      "temporal pole","transverse temporal")
+  list2 = str_replace_all(list," ","")
+  CT_names <- c(str_c("lh_",list2,"_volume"),str_c("rh_",list2,"_volume"))
+  DTK_Labes_For_Plot = list
+  plot_data_L = as.data.frame(DTK_Labes_For_Plot)
+  colnames(plot_data_L)[1] = "region"
+  plot_data_L$hemi="left"
+  plot_data_R = as.data.frame(DTK_Labes_For_Plot)
+  colnames(plot_data_R)[1] = "region"
+  plot_data_R$hemi="right"
+  plot_data = rbind(plot_data_L,plot_data_R)
+  plot_data$area_label = CT_names
+  plot_data$Effect=NA
+  plot_data$P_value=NA
+  attach(plot_data)
+  
+  for (im in 1:68) {
+    Region_AV1451_v1 = plot_data$area_label[im]
+    funtion_glm = as.formula(paste(Region_AV1451_v1,"~",column_predictor,"+amyloid_age+Sex+Edu+eTIV"))
+    results = MASS::rlm(funtion_glm,data =data)
+    
+    coef_table <- summary(results)$coefficients
+    results_df <- as.data.frame(coef_table)
+    colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+    results_df <- results_df %>% mutate(p_value = 2 * (1 - pnorm(abs(t_value))))
+  
+    plot_data$Effect[im] = results_df[2,1]
+    plot_data$P_value[im] = results_df[2,4]
+  }
+  
+  plot_data <- plot_data %>% 
+    mutate(highlight = ifelse(P_value < 0.05, "sig", "non_sig")) %>%
+    mutate(p_adjust = p.adjust(P_value, "fdr", n = length(P_value))) %>%
+    mutate(highlight_sig = ifelse(p_adjust < 0.05, "sig", "non_sig"))
+  
+  return(plot_data)
+}
+
+# re_sub_FTD_v1 = analysis_glm_ATN_sub_robust(data_N_A_analysis_FTD_v1,"Diagnosis_N")
+analysis_glm_ATN_sub_robust <- function(data,column_predictor){
+  
+    list_regions=c("lh_Thalamus_volume","lh_Caudate_volume","lh_Putamen_volume","lh_Pallidum_volume","lh_Hippocampus_volume","lh_Amygdala_volume",
+              "lh_Accumbens_area_volume",
+              "rh_Thalamus_volume","rh_Caudate_volume","rh_Putamen_volume","rh_Pallidum_volume","rh_Hippocampus_volume","rh_Amygdala_volume",
+              "rh_Accumbens_area_volume")
+    list_regions_plots <- c("thalamus proper","caudate","putamen","pallidum","hippocampus","amygdala","accumbens",
+                            "thalamus proper","caudate","putamen","pallidum","hippocampus","amygdala","accumbens")
+    
+    list_regions_labels <- c("Thalamus","Caudate nucleus","Putamen","Pallidum","Hippocampus","Amygdala","Nucleus Accumbens",
+                            "Thalamus","Caudate nucleus","Putamen","Pallidum","Hippocampus","Amygdala","Nucleus Accumbens")
+    
+    plot_data = as.data.frame(list_regions)
+    colnames(plot_data)[1] = "region"
+    plot_data$hemi[1:7]="left"
+    plot_data$hemi[8:14]="right"
+    plot_data$area_label = plot_data$region
+    plot_data$region = list_regions_plots
+    plot_data$region_label = list_regions_labels
+    plot_data$Effect=NA
+    plot_data$P_value=NA
+    attach(plot_data)
+    
+    PRS_cell_type <- column_predictor
+    
+    for (im in 1:14) {
+      Region_AV1451_v1 = plot_data$area_label[im]
+      funtion_glm = as.formula(paste(Region_AV1451_v1,"~",PRS_cell_type,"+amyloid_DATEAFN+Sex+Edu+eTIV"))
+      results = MASS::rlm(funtion_glm,data =data)
+      
+      coef_table <- summary(results)$coefficients
+      results_df <- as.data.frame(coef_table)
+      colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+      results_df <- results_df %>% mutate(p_value = 2 * (1 - pnorm(abs(t_value))))
+      
+      plot_data$Effect[im] = results_df[2,1]
+      plot_data$P_value[im] = results_df[2,4]
+    }
+    
+    plot_data <- plot_data %>% 
+      mutate(highlight = ifelse(P_value < 0.05, "sig", "non_sig")) %>%
+      mutate(p_adjust = p.adjust(P_value, "fdr", n = length(P_value))) %>%
+      mutate(highlight_sig = ifelse(p_adjust < 0.05, "sig", "non_sig"))
+    
+    return(plot_data)
+}
+
+
+analysis_glm_ATN_sub <- function(data,column_predictor){
+  
+    list_regions=c("lh_Thalamus_volume","lh_Caudate_volume","lh_Putamen_volume","lh_Pallidum_volume","lh_Hippocampus_volume","lh_Amygdala_volume",
+              "lh_Accumbens_area_volume",
+              "rh_Thalamus_volume","rh_Caudate_volume","rh_Putamen_volume","rh_Pallidum_volume","rh_Hippocampus_volume","rh_Amygdala_volume",
+              "rh_Accumbens_area_volume")
+    list_regions_plots <- c("thalamus proper","caudate","putamen","pallidum","hippocampus","amygdala","accumbens",
+                            "thalamus proper","caudate","putamen","pallidum","hippocampus","amygdala","accumbens")
+    
+    list_regions_labels <- c("Thalamus","Caudate nucleus","Putamen","Pallidum","Hippocampus","Amygdala","Nucleus Accumbens",
+                            "Thalamus","Caudate nucleus","Putamen","Pallidum","Hippocampus","Amygdala","Nucleus Accumbens")
+    
+    plot_data = as.data.frame(list_regions)
+    colnames(plot_data)[1] = "region"
+    plot_data$hemi[1:7]="left"
+    plot_data$hemi[8:14]="right"
+    plot_data$area_label = plot_data$region
+    plot_data$region = list_regions_plots
+    plot_data$region_label = list_regions_labels
+    plot_data$Effect=NA
+    plot_data$P_value=NA
+    attach(plot_data)
+    
+    PRS_cell_type <- column_predictor
+    
+    for (im in 1:14) {
+      Region_AV1451_v1 = plot_data$area_label[im]
+      funtion_glm = paste(Region_AV1451_v1,"~",PRS_cell_type,"+amyloid_DATEAFN+Sex+Edu+eTIV")
+      results = glm(funtion_glm,family = gaussian,data =data)
+      x = summary(results)
+      CI <- confint(results)
+      P_values_GLM = x$coefficients[2,3:4]
+      plot_data$Effect[im] = x$coefficients[2,1]
+      plot_data$P_value[im] = x$coefficients[2,4]
+      plot_data$ci_lower[im] = CI[2,1]
+      plot_data$ci_upper[im] = CI[2,2]
+    }
+    
+    plot_data <- plot_data %>% 
+      mutate(highlight = ifelse(P_value < 0.05, "sig", "non_sig")) %>%
+      mutate(p_adjust = p.adjust(P_value, "fdr", n = length(P_value))) %>%
+      mutate(highlight_sig = ifelse(p_adjust < 0.05, "sig", "non_sig"))
+    
+    return(plot_data)
+}
+
+
+create_atrophy_maps = function(data1,data2){
+  
+  colors <- c("#EB482F", "#F3E66C","white", "#7CCEDE", "#2D4CA0")
+  
+  plot1 <- ggseg(.data = data1,atlas = "dk",position="stacked",mapping = aes(fill = Effect, colour = highlight,size = highlight),
+                 show.legend = T) +
+          scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1.2,-0.6,0,0.6,1.2)),limits = c(-1.2,1.2))+
+          scale_colour_manual(values = c("sig" = "black", "non_sig" = "grey")) +
+          scale_size_manual(values = c("sig" = 0.6, "non_sig" = 0.2)) +
+          theme_void() +
+          theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),legend.text=element_text(size=6),
+                legend.position = "none")+
+          theme(axis.line = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.border = element_blank(),
+                panel.background = element_blank())
+  
+  plot2 <- ggseg(.data = data2,atlas = "aseg",view = "coronal",mapping = aes(fill = Effect, colour = highlight,size = highlight),size=1,
+                 show.legend = F) +
+        scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1.2,-0.6,0,0.6,1.2)),limits = c(-1.2,1.2))+
+        scale_colour_manual(values = c("sig" = "black", "non_sig" = "grey")) +
+        scale_size_manual(values = c("sig" = 0.6, "non_sig" = 0.2)) +
+        theme_void() +
+        theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),legend.text=element_text(size=6),
+              legend.position = "none")+
+        theme(axis.line = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.border = element_blank(),
+              panel.background = element_blank())
+  
+  plot_data_analysis = ggarrange(plot1,plot2,ncol = 1,nrow = 2,heights = c(2,1))
+  
+  return(plot_data_analysis)
+}
+
+
+create_atrophy_maps_ALL = function(data1,data2){
+  
+  colors <- c("#EB482F", "#F3E66C","white", "#7CCEDE", "#2D4CA0")
+  
+  plot1 <- ggseg(.data = data1,atlas = "dk",position="stacked",mapping = aes(fill = Effect, colour = highlight,size = highlight),
+                 show.legend = T) +
+          scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1.5,-0.6,-0,0.6,1.5)),limits = c(-1.5,1))+
+          scale_colour_manual(values = c("sig" = "black", "non_sig" = "grey")) +
+          scale_size_manual(values = c("sig" = 0.6, "non_sig" = 0.2)) +
+          theme_void() +
+          theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),legend.text=element_text(size=6),
+                legend.position = "none")+
+          theme(axis.line = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.border = element_blank(),
+                panel.background = element_blank())
+  
+  plot2 <- ggseg(.data = data2,atlas = "aseg",view = "coronal",mapping = aes(fill = Effect, colour = highlight,size = highlight),size=1,
+                 show.legend = F) +
+        scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1.5,-0.6,-0,0.6,1)),limits = c(-1.5,1))+
+        scale_colour_manual(values = c("sig" = "black", "non_sig" = "grey")) +
+        scale_size_manual(values = c("sig" = 0.6, "non_sig" = 0.2)) +
+        theme_void() +
+        theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),legend.text=element_text(size=6),
+              legend.position = "none")+
+        theme(axis.line = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.border = element_blank(),
+              panel.background = element_blank())
+  
+  plot_data_analysis = ggarrange(plot1,plot2,ncol = 1,nrow = 2,heights = c(2,1))
+  
+  return(plot_data_analysis)
+}
+
+
+create_atrophy_maps_correction = function(data1,data2){
+
+  colors <- c("#EB482F", "#F3E66C","white", "#7CCEDE", "#2D4CA0")
+  
+  plot1 <- ggseg(.data = data1,atlas = "dk",position="stacked",mapping = aes(fill = Effect, colour = highlight_sig,size = highlight_sig),
+                 show.legend = T) +
+          scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1,-0.6,-0,0.6,1)),limits = c(-1,1))+
+          scale_colour_manual(values = c("sig" = "black", "non_sig" = "grey")) +
+          scale_size_manual(values = c("sig" = 0.6, "non_sig" = 0.2)) +
+          theme_void() +
+          theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),legend.text=element_text(size=6),
+                legend.position = "none")+
+          theme(axis.line = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.border = element_blank(),
+                panel.background = element_blank())
+  
+  plot2 <- ggseg(.data = data2,atlas = "aseg",view = "coronal",mapping = aes(fill = Effect, colour = highlight_sig,size = highlight_sig),
+                 show.legend = F) +
+        scale_fill_gradientn(colours=colors,values = scales::rescale(c(-1,-0.6,-0,0.6,1)),limits = c(-1,1))+
+        scale_colour_manual(values = c("sig" = "black", "non_sig" = "grey")) +
+        scale_size_manual(values = c("sig" = 0.6, "non_sig" = 0.2)) +
+        theme_void() +
+        theme(title=element_text(size=12),plot.title = element_text(hjust = 0.5),legend.text=element_text(size=6),
+              legend.position = "none")+
+        theme(axis.line = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.border = element_blank(),
+              panel.background = element_blank())
+  
+  plot_data_analysis = ggarrange(plot1,plot2,ncol = 1,nrow = 2,heights = c(1.5,1))
+  
+  return(plot_data_analysis)
+}
+```
+
+
+######## Categorical variables
+```{r}
+load("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/C1_domains_Annebet_no_imputation.Rdata")
+data_ADC_analysis_v1 <- C1_domains_Annebet
+table(data_ADC_analysis_v1$D_diagnosis,data_ADC_analysis_v1$amyloid_status)
+
+data_N_analysis <- data_ADC_analysis_v1 %>% 
+  filter(!(D_diagnosis == "SCD"& amyloid_status == "A+")) %>%
+  filter(!(D_diagnosis == "MCI")) %>%
+  filter(!(D_diagnosis == "AD"& amyloid_status == "A-")) %>%
+  
+  mutate(Diagnosis_N = case_when(
+    D_diagnosis == "AD" & amyloid_status == "A+" ~ "AD(A+)",
+    D_diagnosis == "FTD" & amyloid_status == "A-" ~ "FTD(A-)",
+    D_diagnosis == "FTD" & amyloid_status == "A+" ~ "FTD(A+)",
+    D_diagnosis == "DLB" & amyloid_status == "A-" ~ "DLB(A-)",
+    D_diagnosis == "DLB" & amyloid_status == "A+" ~ "DLB(A+)",
+  )) %>%
+  filter(!I_ID == 3329)
+table(data_N_analysis$D_diagnosis,data_N_analysis$amyloid_status)
+
+
+MRI_IDPs_mean <- names(data_N_analysis) %>% keep(~ grepl("_mean", .)) %>% {.[-43]}
+```
+
+
+
+# FTD subtypes
+```{r}
+FTD_subtypes <- fread("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/FTD_subtypes.txt")
+
+IID_svPPA = FTD_subtypes$I_ID[FTD_subtypes$subtype_lc %in% c("svppa","svppa+vad")]
+
+table(FTD_subtypes$amyloid_status[FTD_subtypes$I_ID %in% IID_svPPA])
+```
+
+
+
+# FTD/DLB atrophy maps, without correction, Robust linear regression
+```{r}
+data_N_analysis <- data_N_analysis %>% filter(!I_ID %in% IID_svPPA)
+
+data_N_A_analysis_FTD_v1 <- data_N_analysis %>%
+  filter(Diagnosis_N %in% c("AD(A+)","FTD(A-)")) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("AD(A+)","FTD(A-)")))
+
+data_N_A_analysis_FTD_v2 <- data_N_analysis %>%
+  filter(Diagnosis_N %in% c("AD(A+)","FTD(A+)")) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("AD(A+)","FTD(A+)")))
+
+data_N_A_analysis_FTD_v3 <- data_N_analysis %>%
+  filter(D_diagnosis %in% c("FTD")) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("FTD(A-)","FTD(A+)")))
+
+re_FTD_v1 = analysis_glm_ATN_robust(data_N_A_analysis_FTD_v1,"Diagnosis_N")
+re_sub_FTD_v1 = analysis_glm_ATN_sub_robust(data_N_A_analysis_FTD_v1,"Diagnosis_N")
+re_FTD_v2 = analysis_glm_ATN_robust(data_N_A_analysis_FTD_v2,"Diagnosis_N")
+re_sub_FTD_v2 = analysis_glm_ATN_sub_robust(data_N_A_analysis_FTD_v2,"Diagnosis_N")
+re_FTD_v3 = analysis_glm_ATN_robust(data_N_A_analysis_FTD_v3,"Diagnosis_N")
+re_sub_FTD_v3 = analysis_glm_ATN_sub_robust(data_N_A_analysis_FTD_v3,"Diagnosis_N")
+FTD_atrophy_maps_v1 = create_atrophy_maps(re_FTD_v1,re_sub_FTD_v1)
+FTD_atrophy_maps_v2 = create_atrophy_maps(re_FTD_v2,re_sub_FTD_v2)
+FTD_atrophy_maps_v3 = create_atrophy_maps(re_FTD_v3,re_sub_FTD_v3)
+FTD_atrophy <- ggarrange(FTD_atrophy_maps_v1,FTD_atrophy_maps_v2,FTD_atrophy_maps_v3,ncol = 3,nrow = 1,legend = NULL,common.legend = FALSE)
+
+ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/sensitivity_analysis/plots_atrophy_FTD_robust.pdf",FTD_atrophy_maps_v3,width = 4,height = 4,units = "in",dpi = 300)
+```
+
+
+
+# check cognition domains
+```{r}
+load("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/C1_domains_Annebet_no_imputation.Rdata")
+
+data_ADC_analysis <- C1_domains_Annebet
+table(data_ADC_analysis$D_diagnosis,data_ADC_analysis$amyloid_status)
+
+data_ADC_analysis_cog <- data_ADC_analysis %>%
+  mutate(Diagnosis_N = case_when(
+    D_diagnosis == "SCD" & amyloid_status == "A-" ~ "SCD(A-)",
+    D_diagnosis == "AD" & amyloid_status == "A+" ~ "AD(A+)",
+    D_diagnosis == "FTD" & amyloid_status == "A-" ~ "FTD(A-)",
+    D_diagnosis == "FTD" & amyloid_status == "A+" ~ "FTD(A+)",
+    D_diagnosis == "DLB" & amyloid_status == "A-" ~ "DLB(A-)",
+    D_diagnosis == "DLB" & amyloid_status == "A+" ~ "DLB(A+)",
+  )) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("SCD(A-)","AD(A+)","FTD(A-)","FTD(A+)","DLB(A-)","DLB(A+)"))) %>%
+  mutate(across(all_of(c("V_MMSE")), scale)) %>%
+  filter(!I_ID == 3329) %>%
+  filter(!I_ID %in% IID_svPPA)
+
+
+data_N_A_analysis_AD <- data_ADC_analysis_cog %>% filter(D_diagnosis == "AD") 
+
+table <- descrTable(Diagnosis_N ~amyloid_age+Sex+Edu+APOE_status+V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z,
+          include.miss = TRUE,data_ADC_analysis_cog,max.ylev = 7,show.p.overall = FALSE,show.p.mul = FALSE)
+
+
+################################ FTD & DLB ################################ 
+data_FTD_minus <- data.frame(
+  Global = c(1, -1, 0.13,-0.02),
+  Memory = c(1, -1, 0.20,-0.06),
+  Executive = c(1, -1, 0.34,-0.38),
+  Attention = c(1, -1, -0.19,-0.27),
+  Language = c(1, -1, -0.27,-0.44)
+)
+rownames(data_FTD_minus) <- c("Max", "Min","FTD(A-)","FTD(A+)")
+
+library(fmsb)
+create_beautiful_radarchart <- function(data, color = NULL,title = NULL){
+    radarchart(
+    data,
+    axistype = 1,
+    # Polygon customization
+    pcol = color, pfcol = scales::alpha(color, 0.5), plwd = 1.5,
+    # Grid customization
+    cglcol = "grey", cglty = 1, cglwd = 2,
+    # Axis labels
+    axislabcol = "grey",
+    # Variable labels
+    vlcex = 1.3,
+    caxislabels = c(-1, -0.5, 0, 0.5, 1),
+    title = title
+  )
+}
+
+
+pdf("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/sensitivity_analysis/FTD_DLB_radar_comparison.pdf", width = 11,height = 5)
+op <- par(mar = c(1, 1, 1, 1))
+par(mfrow = c(1, 1))
+create_beautiful_radarchart(data_FTD_minus, color = c("#73929B","#C06C84"))
+legend(
+  x = "bottom", legend = rownames(data_FTD_minus[-c(1,2),]), horiz = TRUE,
+  bty = "n", pch = 20 , col = c("#73929B","#C06C84"),
+  text.col = "black", cex = 1.3, pt.cex = 1.5
+  )
+par(op)
+dev.off()
+
+
+load("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/C1_domains_Annebet_no_imputation.Rdata")
+
+data_ADC_analysis <- C1_domains_Annebet
+table(data_ADC_analysis$D_diagnosis,data_ADC_analysis$amyloid_status)
+
+data_ADC_analysis_cog <- data_ADC_analysis %>%
+  mutate(Diagnosis_N = case_when(
+    D_diagnosis == "SCD" & amyloid_status == "A-" ~ "SCD(A-)",
+    D_diagnosis == "AD" & amyloid_status == "A+" ~ "AD(A+)",
+    D_diagnosis == "FTD" & amyloid_status == "A-" ~ "FTD(A-)",
+    D_diagnosis == "FTD" & amyloid_status == "A+" ~ "FTD(A+)",
+    D_diagnosis == "DLB" & amyloid_status == "A-" ~ "DLB(A-)",
+    D_diagnosis == "DLB" & amyloid_status == "A+" ~ "DLB(A+)",
+  )) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("SCD(A-)","AD(A+)","FTD(A-)","FTD(A+)","DLB(A-)","DLB(A+)"))) %>%
+  mutate(across(all_of(c("V_MMSE")), scale)) %>%
+  filter(!I_ID == 3329)
+
+data_ADC_analysis_cog <- data_ADC_analysis_cog %>% filter(!I_ID %in% IID_svPPA)
+
+
+################################  check significance ################################ 
+library(bruceR)
+data_FTD <- data_ADC_analysis_cog %>% 
+  filter(Diagnosis_N %in% c("FTD(A-)","FTD(A+)")) %>% 
+  mutate(Diagnosis_N  = factor(Diagnosis_N, c("FTD(A-)","FTD(A+)")))
+# V_MMSE + n_memory_z + n_executive_z + n_attsp_z + n_language_z 
+
+
+results = MASS::rlm(n_memory_z ~ Diagnosis_N+amyloid_age+Sex+Edu,data =data_FTD)
+coef_table <- summary(results)$coefficients
+results_df <- as.data.frame(coef_table)
+colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+robust_test = sfsmisc::f.robftest(results,var = names(results$coefficients)[2])
+
+p_two <- robust_test$p.value
+coef_val <- results_df$Estimate[2]  # or however you extract the beta
+
+# One-sided p-values in both directions
+p_one_minus <- p_two / 2      # H1: effect < 0
+p_one_plus  <- p_two / 2      # H1: effect > 0
+
+# Keep the one in the "wrong" direction as 1
+if (coef_val < 0) {
+    p_one_plus <- 1
+} else if (coef_val > 0) {
+    p_one_minus <- 1
+}
+```
+
+# check interaction analysis!!!!!!!!!!!!!!!!!!
+```{r,include=FALSE}
+load("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/C1_domains_Annebet_no_imputation.Rdata")
+data_ADC_analysis <- C1_domains_Annebet
+table(data_ADC_analysis$D_diagnosis,data_ADC_analysis$amyloid_status)
+
+data_ADC_analysis_cog <- data_ADC_analysis %>%
+  mutate(Diagnosis_N = case_when(
+    D_diagnosis == "SCD" & amyloid_status == "A-" ~ "SCD(A-)",
+    D_diagnosis == "AD" & amyloid_status == "A+" ~ "AD(A+)",
+    D_diagnosis == "FTD" & amyloid_status == "A-" ~ "FTD(A-)",
+    D_diagnosis == "FTD" & amyloid_status == "A+" ~ "FTD(A+)",
+    D_diagnosis == "DLB" & amyloid_status == "A-" ~ "DLB(A-)",
+    D_diagnosis == "DLB" & amyloid_status == "A+" ~ "DLB(A+)",
+  )) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("SCD(A-)","AD(A+)","FTD(A-)","FTD(A+)","DLB(A-)","DLB(A+)"))) %>%
+  mutate(across(all_of(c("V_MMSE")), scale))
+
+data_N_A_analysis_AD <- data_ADC_analysis_cog %>% filter(D_diagnosis == "AD")
+
+descrTable(Diagnosis_N ~amyloid_age+Sex+Edu+APOE_status+V_MMSE  + n_executive_z + n_attsp_z + n_language_z+lh_Putamen_volume+rh_Thalamus_volume+lh_Hippocampus_volume+rh_parsorbitalis_thickness,
+          include.miss = TRUE,data_ADC_analysis_cog,max.ylev = 7,show.p.overall = FALSE)
+```
+
+# functions loading
+```{r}
+theme_common <- function() {
+  theme(
+    axis.ticks.x = element_blank(),        
+    axis.ticks.y = element_blank(),        
+    panel.border = element_rect(fill = NA, color = "grey70", size = 2, linetype = "solid"),
+    axis.text.x = element_text(size = 16, angle = 90, hjust = 0),
+    axis.text.y = element_text(size = 16),
+    legend.text = element_text(size = 20),
+    legend.title = element_text(size = 16),
+    legend.key.size = unit(1.5, "cm"),
+    legend.box.spacing = unit(0.5, "cm"))
+}
+
+analysis_glm_cognition_case_control_interaction_volume <- function(stats_freesurfer_PRS,cognition_domains){
+  
+    list=c("bankssts","caudal anterior cingulate","caudal middle frontal",
+        "cuneus","entorhinal","frontal pole","fusiform","inferior parietal",
+        "inferior temporal","insula","isthmus cingulate","lateral occipital",
+        "lateral orbitofrontal","lingual","medial orbitofrontal","middle temporal",
+        "paracentral","parahippocampal","pars opercularis","pars orbitalis",
+        "pars triangularis","pericalcarine","postcentral","posterior cingulate",
+        "precentral","precuneus","rostral anterior cingulate","rostral middle frontal",
+        "superior frontal","superior parietal","superior temporal","supramarginal",
+        "temporal pole","transverse temporal","thalamus proper","caudate","putamen",
+        "pallidum","hippocampus","amygdala","accumbens area")
+    
+    list_sub = c("Thalamus_volume_mean","Caudate_volume_mean","Putamen_volume_mean",
+                 "Pallidum_volume_mean","Hippocampus_volume_mean","Amygdala_volume_mean",
+                 "Accumbens_area_volume_mean")
+    CT_names <- c(str_c(str_replace_all(list[1:34]," ",""),"_volume_mean"),list_sub)
+    
+    DTK_Labes_For_Plot = list
+    plot_data_L = as.data.frame(DTK_Labes_For_Plot)
+    colnames(plot_data_L)[1] = "region"
+    plot_data = plot_data_L
+    
+    plot_data$area_label = CT_names
+    plot_data$main_Effect_ref=NA
+    plot_data$main_pvalues_ref=NA
+    plot_data$main_Effect_case=NA
+    plot_data$main_pvalues_case=NA
+    plot_data$interaction_Effect_case_ref=NA
+    plot_data$interaction_pvalues_case_ref=NA   
+    attach(plot_data)
+    
+    for (im in 1:34) {
+      Region_AV1451_v1 = plot_data$area_label[im]
+      funtion_glm = as.formula(paste0(cognition_domains,"~",Region_AV1451_v1,"+Diagnosis_N+",Region_AV1451_v1,":Diagnosis_N+amyloid_age+Sex+Edu+eTIV"))
+      results = glm(funtion_glm,family = gaussian,data =stats_freesurfer_PRS)
+      x = summary(results)
+      y = sim_slopes(results,pred = !!Region_AV1451_v1,modx = "Diagnosis_N",johnson_neyman = FALSE)
+      
+      plot_data$main_Effect_ref[im] = y$slopes[1,2]
+      plot_data$main_pvalues_ref[im] = y$slopes[1,7]
+      plot_data$main_Effect_case[im] = y$slopes[2,2]
+      plot_data$main_pvalues_case[im] = y$slopes[2,7]
+
+      plot_data$interaction_Effect_case_ref[im] = x$coefficients[8,1]
+      plot_data$interaction_pvalues_case_ref[im] = x$coefficients[8,4]
+    }
+    
+    for (im in 35:41) {
+      Region_AV1451_v1 = plot_data$area_label[im]
+      Region_AV1451_ALL = plot_data$area_label
+      funtion_glm = as.formula(paste0(cognition_domains,"~",Region_AV1451_v1,"+Diagnosis_N+",Region_AV1451_v1,
+                                      ":Diagnosis_N+amyloid_age+Sex+Edu+eTIV"))
+      results = glm(funtion_glm,family = gaussian,data =stats_freesurfer_PRS)
+      x = summary(results)
+      y = interactions::sim_slopes(results,pred = !!Region_AV1451_v1,modx = "Diagnosis_N",johnson_neyman = FALSE)
+      
+      plot_data$main_Effect_ref[im] = y$slopes[1,2]
+      plot_data$main_pvalues_ref[im] = y$slopes[1,7]
+      plot_data$main_Effect_case[im] = y$slopes[2,2]
+      plot_data$main_pvalues_case[im] = y$slopes[2,7]
+      plot_data$interaction_Effect_case_ref[im] = x$coefficients[8,1]
+      plot_data$interaction_pvalues_case_ref[im] = x$coefficients[8,4]
+    }
+    plot_data <- plot_data %>% 
+      select(region,area_label,interaction_Effect_case_ref,interaction_pvalues_case_ref) %>%
+      distinct(area_label,.keep_all = TRUE) %>%
+      mutate(cognition = cognition_domains)
+    
+    return(plot_data)
+}
+
+
+#re_EpisodicMemory <- analysis_glm_cognition_case_control_interaction_volume_robust(data_N_A_analysis_FTD,"n_memory_z")
+
+analysis_glm_cognition_case_control_interaction_volume_robust <- function(stats_freesurfer_PRS,cognition_domains){
+    
+    list=c("bankssts","caudal anterior cingulate","caudal middle frontal",
+        "cuneus","entorhinal","frontal pole","fusiform","inferior parietal",
+        "inferior temporal","insula","isthmus cingulate","lateral occipital",
+        "lateral orbitofrontal","lingual","medial orbitofrontal","middle temporal",
+        "paracentral","parahippocampal","pars opercularis","pars orbitalis",
+        "pars triangularis","pericalcarine","postcentral","posterior cingulate",
+        "precentral","precuneus","rostral anterior cingulate","rostral middle frontal",
+        "superior frontal","superior parietal","superior temporal","supramarginal",
+        "temporal pole","transverse temporal","thalamus proper","caudate","putamen",
+        "pallidum","hippocampus","amygdala","accumbens area")
+    
+    list_sub = c("Thalamus_volume_mean","Caudate_volume_mean","Putamen_volume_mean",
+                 "Pallidum_volume_mean","Hippocampus_volume_mean","Amygdala_volume_mean",
+                 "Accumbens_area_volume_mean")
+    CT_names <- c(str_c(str_replace_all(list[1:34]," ",""),"_volume_mean"),list_sub)
+    
+    DTK_Labes_For_Plot = list
+    plot_data_L = as.data.frame(DTK_Labes_For_Plot)
+    colnames(plot_data_L)[1] = "region"
+    plot_data = plot_data_L
+    
+    plot_data$area_label = CT_names
+    plot_data$main_Effect_ref=NA
+    plot_data$main_pvalues_ref=NA
+    plot_data$main_Effect_case=NA
+    plot_data$main_pvalues_case=NA
+    plot_data$interaction_Effect_case_ref=NA
+    plot_data$interaction_pvalues_case_ref=NA   
+    attach(plot_data)
+    
+    for (im in 1:34) {
+      Region_AV1451_v1 = plot_data$area_label[im]
+      funtion_glm = as.formula(paste0(cognition_domains,"~",Region_AV1451_v1,"+Diagnosis_N+",Region_AV1451_v1,":Diagnosis_N+amyloid_age+Sex+Edu+eTIV"))
+      results = MASS::rlm(funtion_glm,data =stats_freesurfer_PRS)
+  
+      coef_table <- summary(results)$coefficients
+      results_df <- as.data.frame(coef_table)
+      colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+      results_df <- results_df %>% mutate(p_value = 2 * (1 - pnorm(abs(t_value))))
+      p_values = sfsmisc::f.robftest(results,var = names(results$coefficients)[8])
+
+      plot_data$interaction_Effect_case_ref[im] = results_df[8,1]
+      plot_data$interaction_pvalues_case_ref[im] = p_values$p.value
+    }
+    
+    for (im in 35:41) {
+      Region_AV1451_v1 = plot_data$area_label[im]
+      Region_AV1451_ALL = plot_data$area_label
+      funtion_glm = as.formula(paste0(cognition_domains,"~",Region_AV1451_v1,"+Diagnosis_N+",Region_AV1451_v1,
+                                      ":Diagnosis_N+amyloid_age+Sex+Edu+eTIV"))
+      results = MASS::rlm(funtion_glm,data =stats_freesurfer_PRS)
+      
+      coef_table <- summary(results)$coefficients
+      results_df <- as.data.frame(coef_table)
+      colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+      results_df <- results_df %>% mutate(p_value = 2 * (1 - pnorm(abs(t_value))))
+      p_values = sfsmisc::f.robftest(results,var = names(results$coefficients)[8])
+      
+      plot_data$interaction_Effect_case_ref[im] = results_df[8,1]
+      plot_data$interaction_pvalues_case_ref[im] = p_values$p.value
+      
+    }
+    plot_data <- plot_data %>% 
+      dplyr::select(region,area_label,interaction_Effect_case_ref,interaction_pvalues_case_ref) %>%
+      distinct(area_label,.keep_all = TRUE) %>%
+      mutate(cognition = cognition_domains)
+    
+    return(plot_data)
+}
+
+
+analysis_glm_cognition_case_control_interaction_thickness <- function(stats_freesurfer_PRS,cognition_domains){
+  
+    list=c("bankssts","caudal anterior cingulate","caudal middle frontal",
+        "cuneus","entorhinal","frontal pole","fusiform","inferior parietal",
+        "inferior temporal","insula","isthmus cingulate","lateral occipital",
+        "lateral orbitofrontal","lingual","medial orbitofrontal","middle temporal",
+        "paracentral","parahippocampal","pars opercularis","pars orbitalis",
+        "pars triangularis","pericalcarine","postcentral","posterior cingulate",
+        "precentral","precuneus","rostral anterior cingulate","rostral middle frontal",
+        "superior frontal","superior parietal","superior temporal","supramarginal",
+        "temporal pole","transverse temporal","thalamus proper","caudate","putamen",
+        "pallidum","hippocampus","amygdala","accumbens area")
+    
+    list_sub = c("Thalamus_volume_mean","Caudate_volume_mean","Putamen_volume_mean",
+                 "Pallidum_volume_mean","Hippocampus_volume_mean","Amygdala_volume_mean",
+                 "Accumbens_area_volume_mean")
+    CT_names <- c(str_c(str_replace_all(list[1:34]," ",""),"_thickness_mean"),list_sub)
+    
+    DTK_Labes_For_Plot = list
+    plot_data_L = as.data.frame(DTK_Labes_For_Plot)
+    colnames(plot_data_L)[1] = "region"
+    plot_data = plot_data_L
+    
+    plot_data$area_label = CT_names
+    plot_data$main_Effect_ref=NA
+    plot_data$main_pvalues_ref=NA
+    plot_data$main_Effect_case=NA
+    plot_data$main_pvalues_case=NA
+    plot_data$interaction_Effect_case_ref=NA
+    plot_data$interaction_pvalues_case_ref=NA   
+    attach(plot_data)
+    
+    for (im in 1:34) {
+      Region_AV1451_v1 = plot_data$area_label[im]
+      funtion_glm = as.formula(paste0(cognition_domains,"~",Region_AV1451_v1,"+Diagnosis_N+",Region_AV1451_v1,":Diagnosis_N+amyloid_age+Sex+Edu"))
+      results = glm(funtion_glm,family = gaussian,data =stats_freesurfer_PRS)
+      x = summary(results)
+      y = sim_slopes(results,pred = !!Region_AV1451_v1,modx = "Diagnosis_N",johnson_neyman = FALSE)
+      
+      plot_data$main_Effect_ref[im] = y$slopes[1,2]
+      plot_data$main_pvalues_ref[im] = y$slopes[1,7]
+      plot_data$main_Effect_case[im] = y$slopes[2,2]
+      plot_data$main_pvalues_case[im] = y$slopes[2,7]
+
+      plot_data$interaction_Effect_case_ref[im] = x$coefficients[7,1]
+      plot_data$interaction_pvalues_case_ref[im] = x$coefficients[7,4]
+    }
+    
+    for (im in 35:41) {
+      Region_AV1451_v1 = plot_data$area_label[im]
+      Region_AV1451_ALL = plot_data$area_label
+      funtion_glm = as.formula(paste0(cognition_domains,"~",Region_AV1451_v1,"+Diagnosis_N+",Region_AV1451_v1,
+                                      ":Diagnosis_N+amyloid_age+Sex+Edu+eTIV"))
+      results = glm(funtion_glm,family = gaussian,data =stats_freesurfer_PRS)
+      x = summary(results)
+      y = interactions::sim_slopes(results,pred = !!Region_AV1451_v1,modx = "Diagnosis_N",johnson_neyman = FALSE)
+      
+      plot_data$main_Effect_ref[im] = y$slopes[1,2]
+      plot_data$main_pvalues_ref[im] = y$slopes[1,7]
+      plot_data$main_Effect_case[im] = y$slopes[2,2]
+      plot_data$main_pvalues_case[im] = y$slopes[2,7]
+      plot_data$interaction_Effect_case_ref[im] = x$coefficients[8,1]
+      plot_data$interaction_pvalues_case_ref[im] = x$coefficients[8,4]
+    }
+    plot_data <- plot_data %>% 
+      select(region,area_label,interaction_Effect_case_ref,interaction_pvalues_case_ref) %>%
+      distinct(area_label,.keep_all = TRUE) %>%
+      mutate(cognition = cognition_domains)
+    
+    return(plot_data)
+}
+
+
+make_plots_interaction_case_control <- function(re_AD){
+  
+  re_AD$area_label = str_split(re_AD$area_label,"_",simplify = TRUE)[,1]
+  re_AD$region[re_AD$region == "choroid.plexus"] = "choroid plexus"
+  DKT_lobes_mapping <- 
+    read.csv("/Users/jiangxiaofan/Desktop/projects/project_ADC_mega_atrophy_paper/Chenyang_ADC_paper/DKT_lobes_mapping_plot.csv")
+  
+  DKT_lobes_mapping$region[DKT_lobes_mapping$region == "choroid.plexus"] = "choroid plexus"
+  
+  re_AD <- merge(re_AD,DKT_lobes_mapping[,c("region","lobes")],by.x = "region",all.x = TRUE) %>% 
+    filter(!region == "choroid plexus")
+  re_AD$region <- factor(re_AD$region,levels = unique(DKT_lobes_mapping$region))
+  re_AD$lobes <- factor(re_AD$lobes,
+                        levels = c("Frontal Lobe","Temporal Lobe","Occipital Lobe","Parietal Lobe","Insula and Cingulate","Subcortical"))
+  
+  plot_AD <- ggplot(re_AD, aes(region, cognition, col = interaction_Effect_case_ref)) +  
+    geom_tile(color = "#b9b6b6", fill = "white", size = 1) + 
+    geom_point(aes(size = abs(interaction_Effect_case_ref)), shape = 15) +  
+    geom_point(aes(shape = interaction_pvalues_case_ref < .05), size = 2, color = "black") +
+    scale_shape_manual(
+      values = c(`FALSE` = NA, `TRUE` = 8),
+      guide  = "none") +
+    labs(x = NULL, y = NULL, color = NULL) +  
+    scale_color_gradientn(colours=c("#7CCEDE","white","#F3E66C","#EB482F"),values = scales::rescale(c(-0.5,0,0.5,1)),limits = c(-0.5,1))+
+    scale_x_discrete(expand = c(0, 0), position = "top") +
+    scale_y_discrete(expand = c(0, 0)) +  
+    scale_size(range = c(1, 10), guide = NULL) +  
+    guides(color = guide_colorbar(direction = "vertical", reverse = FALSE,                                 
+                                  barwidth = unit(1, "cm"),                                
+                                  barheight = unit(15, "cm"))) +
+    theme_common() +
+    facet_grid2(.~lobes, scales = "free_x", space = "free_x",
+                strip = strip_themed(background_x = elem_list_rect(fill = c("#617b36","#2a5371","#2b9a17","#fa7351","#886c90","#cb1315","grey")),text_x = elem_list_text(color = "white", size = 12)))
+   
+    return(plot_AD)
+}
+
+
+
+make_plots_interaction_each_domain <- function(re_AD){
+  
+  re_AD$area_label = str_split(re_AD$area_label,"_",simplify = TRUE)[,1]
+  re_AD$region[re_AD$region == "choroid.plexus"] = "choroid plexus"
+  DKT_lobes_mapping <- 
+    read.csv("/Users/jiangxiaofan/Desktop/projects/project_ADC_mega_atrophy_paper/Chenyang_ADC_paper/DKT_lobes_mapping_plot.csv")
+  
+  DKT_lobes_mapping$region[DKT_lobes_mapping$region == "choroid.plexus"] = "choroid plexus"
+  re_AD <- merge(re_AD,DKT_lobes_mapping[,c("region","lobes")],by.x = "region",all.x = TRUE)
+  re_AD$region <- factor(re_AD$region,levels = unique(DKT_lobes_mapping$region))
+  re_AD$lobes <- factor(re_AD$lobes,
+                        levels = c("Frontal Lobe","Temporal Lobe","Occipital Lobe","Parietal Lobe","Insula and Cingulate","Subcortical","ventricles"))
+  
+  plot_AD <- ggplot(re_AD, aes(region, cognition, col = interaction_Effect_case_ref)) +  
+    geom_tile(color = "#b9b6b6", fill = "white", size = 1) + 
+    geom_point(aes(size = abs(interaction_Effect_case_ref)), shape = 15) +  
+    geom_point(aes(shape = interaction_pvalues_case_ref < .05), size = 2, color = "black") +
+    scale_shape_manual(
+      values = c(`FALSE` = NA, `TRUE` = 8),
+      guide  = "none") +
+    labs(x = NULL, y = NULL, color = NULL) +  
+    scale_color_gradientn(colours=c("#7CCEDE","white","#F3E66C","#EB482F"),values = scales::rescale(c(-1.5,0,0.3,1,2)),limits = c(-1.5,2))+
+    scale_x_discrete(expand = c(0, 0), position = "top") +
+    scale_y_discrete(expand = c(0, 0)) +  
+    scale_size(range = c(1, 10), guide = NULL) +  
+    guides(color = guide_colorbar(direction = "vertical", reverse = FALSE,                                 
+                                  barwidth = unit(0.5, "cm"),                                
+                                  barheight = unit(15, "cm"))) +
+    theme_common() +
+    facet_grid2(.~lobes, scales = "free_x", space = "free_x",
+                strip = strip_themed(background_x = elem_list_rect(fill = c("#617b36","#2a5371","#2b9a17","#fa7351","#886c90","#cb1315","grey")),text_x = elem_list_text(color = "white", size = 12)))
+   
+    return(plot_AD)
+}
+
+
+analysis_glm_cognition_mean <- function(stats_freesurfer_PRS,cognition_domains){
+  
+    list=c("bankssts","caudal anterior cingulate","caudal middle frontal",
+        "cuneus","entorhinal","frontal pole","fusiform","inferior parietal",
+        "inferior temporal","insula","isthmus cingulate","lateral occipital",
+        "lateral orbitofrontal","lingual","medial orbitofrontal","middle temporal",
+        "paracentral","parahippocampal","pars opercularis","pars orbitalis",
+        "pars triangularis","pericalcarine","postcentral","posterior cingulate",
+        "precentral","precuneus","rostral anterior cingulate","rostral middle frontal",
+        "superior frontal","superior parietal","superior temporal","supramarginal",
+        "temporal pole","transverse temporal","thalamus proper","caudate","putamen",
+        "pallidum","hippocampus","amygdala","accumbens area","choroid.plexus")
+    
+    list_sub = c("Thalamus_volume_mean","Caudate_volume_mean","Putamen_volume_mean",
+                 "Pallidum_volume_mean","Hippocampus_volume_mean","Amygdala_volume_mean",
+                 "Accumbens_area_volume_mean","choroid_plexus_volume_mean")
+    CT_names <- c(str_c(str_replace_all(list[1:34]," ",""),"_volume_mean"),list_sub)
+    
+    DTK_Labes_For_Plot = list
+    plot_data_L = as.data.frame(DTK_Labes_For_Plot)
+    colnames(plot_data_L)[1] = "region"
+    plot_data = plot_data_L
+    plot_data$area_label = CT_names
+    plot_data$Effect=NA
+    plot_data$P_value=NA
+    attach(plot_data)
+    
+    for (im in 1:34) {
+      Region_AV1451_v1 = plot_data$area_label[im]
+      funtion_glm = paste(cognition_domains,"~",Region_AV1451_v1,"+amyloid_age+Sex+Edu+eTIV")
+      results = glm(funtion_glm,family = gaussian,data =stats_freesurfer_PRS)
+      x = summary(results)
+      P_values_GLM = x$coefficients[2,3:4]
+      plot_data$Effect[im] = x$coefficients[2,1]
+      plot_data$P_value[im] = x$coefficients[2,4]
+    }
+    
+    for (im in 35:42) {
+      Region_AV1451_v1 = plot_data$area_label[im]
+      funtion_glm = paste(cognition_domains,"~",Region_AV1451_v1,"+amyloid_age+Sex+Edu+eTIV")
+      results = glm(funtion_glm,family = gaussian,data =stats_freesurfer_PRS)
+      x = summary(results)
+      P_values_GLM = x$coefficients[2,3:4]
+      plot_data$Effect[im] = x$coefficients[2,1]
+      plot_data$P_value[im] = x$coefficients[2,4]
+    }
+    return(plot_data)
+}
+
+
+theme_pub <- function(base_size = 20) {
+  theme_classic(base_size = base_size) +
+    theme(
+      legend.position = "none",
+      legend.title = element_text(size = base_size + 2, face = "bold"),
+      legend.text = element_text(size = base_size),
+      axis.title.x = element_text(size = base_size + 4, face = "bold", margin = margin(t = 10)),
+      axis.title.y = element_text(size = base_size + 4, face = "bold", margin = margin(r = 10)),
+      axis.text.x = element_text(size = base_size + 2),
+      axis.text.y = element_text(size = base_size + 2),
+      panel.grid.major.y = element_line(color = "gray90"),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(color = "black")
+    )
+}
+
+```
+
+# FTD: interaction effects - robust linear regression model
+```{r,include=FALSE}
+subtypes_FTD <- fread("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/data/subtypes_FTD_jcy.txt")
+ID_list_Other <- subtypes_FTD$I_ID[subtypes_FTD$ftd_group_Lianne_Sterre == "Other/Unclassified"]
+ID_list_bvFTD <- subtypes_FTD$I_ID[subtypes_FTD$ftd_group_Lianne_Sterre == "bvFTD spectrum"]
+
+data_N_A_analysis_FTD <- data_ADC_analysis_cog %>%
+  filter(D_diagnosis %in% c("FTD")) %>%
+  mutate(Diagnosis_N = factor(Diagnosis_N,c("FTD(A-)","FTD(A+)"))) %>%
+  filter(!I_ID == 3329) %>%
+  filter(!I_ID %in% IID_svPPA)
+
+re_EpisodicMemory <- analysis_glm_cognition_case_control_interaction_volume_robust(data_N_A_analysis_FTD,"n_memory_z")
+re_ExecutiveFunctioning <- analysis_glm_cognition_case_control_interaction_volume_robust(data_N_A_analysis_FTD,"n_executive_z")
+re_Attention <- analysis_glm_cognition_case_control_interaction_volume_robust(data_N_A_analysis_FTD,"n_attsp_z") 
+re_Language <- analysis_glm_cognition_case_control_interaction_volume_robust(data_N_A_analysis_FTD,"n_language_z") 
+re_MMSE <- analysis_glm_cognition_case_control_interaction_volume_robust(data_N_A_analysis_FTD,"V_MMSE") 
+
+
+re_EpisodicMemory <- re_EpisodicMemory %>% 
+  dplyr::select(region,area_label,interaction_Effect_case_ref,interaction_pvalues_case_ref) %>%
+  distinct(area_label,.keep_all = TRUE) %>%
+  mutate(cognition = "Episodic Memory")
+  
+re_ExecutiveFunctioning <- re_ExecutiveFunctioning %>% 
+  dplyr::select(region,area_label,interaction_Effect_case_ref,interaction_pvalues_case_ref) %>%
+  mutate(cognition = "Executive Functioning") %>%
+  distinct(area_label,.keep_all = TRUE)
+
+re_Attention <- re_Attention %>% 
+  dplyr::select(region,area_label,interaction_Effect_case_ref,interaction_pvalues_case_ref) %>%
+  mutate(cognition = "Attention") %>%
+  distinct(area_label,.keep_all = TRUE)
+
+re_Language <- re_Language %>% 
+  dplyr::select(region,area_label,interaction_Effect_case_ref,interaction_pvalues_case_ref) %>%
+  mutate(cognition = "Language") %>%
+  distinct(area_label,.keep_all = TRUE)
+
+re_MMSE <- re_MMSE %>% 
+  dplyr::select(region,area_label,interaction_Effect_case_ref,interaction_pvalues_case_ref) %>%
+  mutate(cognition = "MMSE") %>%
+  distinct(area_label,.keep_all = TRUE)
+
+re_AD <- bind_rows(re_EpisodicMemory,re_ExecutiveFunctioning,re_Attention,re_Language)
+re_AD$cognition = factor(re_AD$cognition,levels = c("Language","Attention","Executive Functioning","Episodic Memory"))
+plot_FTD <- make_plots_interaction_case_control(re_AD)
+
+ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/sensitivity_analysis/Figure2_FTD_hemapmap.pdf",plot_FTD,width = 17,height = 5,units = "in",dpi = 300)
+
+
+re_AD <- re_AD %>% 
+  mutate(across(where(is.numeric), ~ signif(., 2)))
+#writexl::write_xlsx(re_AD,"/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Manuscript_co_pathology_15_August_2025_CJ/interactions_FTD.xlsx")
+
+
+#ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/plots_association/robust/Figure2_FTD_hemapmap_LEGEND.pdf",plot_FTD,width = 17,height = 10,units = "in",dpi = 300)
+
+```
+
+
+
+# FTD scatter plots
+```{r}
+data_N_A_analysis_tmp <- data_N_A_analysis_FTD %>% filter(Diagnosis_N == "FTD(A-)")
+funtion_glm = as.formula("n_language_z~Putamen_volume_mean+amyloid_age+Sex+Edu+eTIV")
+results = MASS::rlm(funtion_glm,data =data_N_A_analysis_tmp)
+coef_table <- summary(results)$coefficients
+results_df <- as.data.frame(coef_table)
+colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+results_df <- results_df %>% mutate(p_value = 2 * (1 - pnorm(abs(t_value))))
+coef_info <- results_df["Putamen_volume_mean", ]
+beta_txt <- sprintf("BetaA+ = %.3f", coef_info["Estimate"])
+p_values = sfsmisc::f.robftest(results,var = names(results$coefficients)[2])
+pval_txt <- ifelse(p_values$p.value < 0.001, "p < 0.001", sprintf("p = %.3f", p_values$p.value))
+
+
+plot_DLB_1 <- ggplot(data_N_A_analysis_FTD, aes(x = Putamen_volume_mean, 
+                                              y = n_language_z,
+                                              color = Diagnosis_N,
+                                              linetype = Diagnosis_N)) +
+  geom_point(alpha = 0.6, size = 4) +
+  geom_smooth(method = "lm", se = TRUE, aes(fill = Diagnosis_N)) +
+  labs(x = "Putamen volume", y = NULL) +
+  labs(y = "Language domain", y = NULL) +
+  scale_x_continuous(limits = c(-2, 3), breaks = seq(-2, 3, by = 1)) +
+  scale_y_continuous(limits = c(-4, 1)) +
+  scale_linetype_manual(values = c("FTD(A-)" = "solid", "FTD(A+)" = "dashed")) +
+  scale_color_manual(values = c("FTD(A-)" = "#507991", "FTD(A+)" = "#D9829D")) +
+  scale_fill_manual(values = c("FTD(A-)" = "#507991", "FTD(A+)" = "#D9829D")) +
+  annotate("text",x = 1, y = -2.6,label = expression("A-:" ~ beta == 0.081 * "," ~ italic(p) == 0.17),size = 7,hjust = 0) +
+  annotate("text",x = 1, y = -3.4,label = expression("A+:" ~ beta == 0.39 * "," ~ italic(p) == 0.015),size = 7,hjust = 0) +
+  theme_pub()
+
+################################################  Figure2_FTD_scatter2.pdf
+data_N_A_analysis_tmp <- data_N_A_analysis_FTD %>% filter(Diagnosis_N == "FTD(A+)")
+funtion_glm = as.formula("n_attsp_z~posteriorcingulate_volume_mean+amyloid_age+Sex+Edu+eTIV")
+results = MASS::rlm(funtion_glm,data =data_N_A_analysis_tmp)
+coef_table <- summary(results)$coefficients
+results_df <- as.data.frame(coef_table)
+colnames(results_df) <- c("Estimate", "Std_Error", "t_value")
+results_df <- results_df %>% mutate(p_value = 2 * (1 - pnorm(abs(t_value))))
+
+coef_info <- results_df["posteriorcingulate_volume_mean", ]
+beta_txt <- sprintf("Beta = %.3f", coef_info["Estimate"])
+p_values = sfsmisc::f.robftest(results,var = names(results$coefficients)[2])
+pval_txt <- ifelse(p_values$p.value < 0.001, "p < 0.001", sprintf("p = %.3f", p_values$p.value))
+
+plot_DLB_2 <- ggplot(data_N_A_analysis_FTD, aes(x = posteriorcingulate_volume_mean, 
+                                              y = n_attsp_z,
+                                              color = Diagnosis_N,
+                                              linetype = Diagnosis_N)) +
+  geom_point(alpha = 0.6, size = 4) +
+  geom_smooth(method = "lm", se = TRUE, aes(fill = Diagnosis_N)) +
+  labs(x = "Posterior cingulate volume", y = NULL) +
+  labs(y = "Attention domain", y = NULL) +
+  scale_x_continuous(limits = c(-2, 3), breaks = seq(-2, 3, by = 1)) +
+  scale_y_continuous(limits = c(-4, 1)) +
+  scale_linetype_manual(values = c("FTD(A-)" = "solid", "FTD(A+)" = "dashed")) +
+  scale_color_manual(values = c("FTD(A-)" = "#507991", "FTD(A+)" = "#D9829D")) +
+  scale_fill_manual(values = c("FTD(A-)" = "#507991", "FTD(A+)" = "#D9829D")) +
+  annotate("text",x = 1, y = -2.6,label = expression("A-:" ~ beta == -0.021 * "," ~ italic(p) == 0.78),size = 7,hjust = 0) +
+  annotate("text",x = 1, y = -3.4,label = expression("A+:" ~ beta == 0.39 * "," ~ italic(p) == 0.012),size = 7,hjust = 0) +
+  theme_pub()
+
+
+Figure2_FTD_scatter_ALL = ggarrange(Figure2_FTD_scatter1,Figure2_FTD_scatter2,nrow = 2,ncol = 1)
+
+
+ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Submission_Brain_v3/plots/sensitivity_analysis/S-Figure-4-2.pdf",plot_DLB_1,width = 17,height = 5,units = "in",dpi = 300)
+
+
+ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/documents/Submission_Brain_v3/plots/sensitivity_analysis/S-Figure-4-3.pdf",plot_DLB_2,width = 17,height = 5,units = "in",dpi = 300)
+
+
+
+#ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/sensitivity_analysis/Figure2_FTD_scatter_ALL_1.pdf",Figure2_FTD_scatter1,width = 17,height = 5,units = "in",dpi = 300)
+#ggsave("/Users/jiangxiaofan/Desktop/projects/project_ADC_copathology/plots/sensitivity_analysis/Figure2_FTD_scatter_ALL_2.pdf",Figure2_FTD_scatter2,width = 17,height = 5,units = "in",dpi = 300)
+```
+
+
+

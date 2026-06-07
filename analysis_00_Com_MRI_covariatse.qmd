@@ -1,0 +1,388 @@
+---
+title: "project_ADC_mega_main"
+---
+
+Freesurfer outputs: 718_Freesurfer_output_20250619.xlsx
+Sven data selection criteria
+
+```{r,include=F}
+rm(list = ls())
+library(readxl)
+library(tidyverse)
+library(ggseg)
+library(compareGroups)
+library(ggpubr)
+library(compareGroups)
+library(sjPlot)
+library(naniar)
+library(bruceR)
+library(mice)
+```
+
+
+# Data loading
+```{r,include=FALSE}
+path_data = "/Users/jiangxiaofan/Desktop/projects/project_ADC_mega_copathology/data"
+Freesurfer_output_718 = read_xlsx(str_c(path_data,"/data_request/718_Freesurfer_output_20250619.xlsx"))
+data_718_Baseline = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "Baseline") # 9749
+data_718_Diagnosis = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "Diagnosis") # 9749
+data_718_MRI = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V3.xlsx"),sheet = "MRI",col_types = c("numeric","date","text","text","text","text","text","text","text","text"))
+data_718_CSF = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "CSF")
+data_718_PET = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "PET")
+data_718_NPO = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "NPO")
+data_718_NPI = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "NPI")
+data_718_MMSE = read_xlsx(str_c(path_data,"/data_request/718_Updated_data_20250602_V2.xlsx"),sheet = "MMSE")
+
+data_718_Diagnosis$D_dat = str_split(data_718_Diagnosis$D_dat," ",simplify = TRUE)[,1]
+
+data_718_MRI$M_dat = str_split(data_718_MRI$M_dat," ",simplify = TRUE)[,1]
+data_718_MRI$M_age = as.numeric(data_718_MRI$M_age)
+
+data_718_CSF$L_DATEAFN = str_split(data_718_CSF$L_DATEAFN," ",simplify = TRUE)[,1]
+data_718_CSF$L_age = as.numeric(data_718_CSF$L_age)
+
+data_718_PET$PT_date = str_split(data_718_PET$PT_date," ",simplify = TRUE)[,1]
+data_718_NPO$N_date = str_split(data_718_NPO$N_date," ",simplify = TRUE)[,1]
+data_718_NPO$N_age = as.numeric(data_718_NPO$N_age)
+
+data_718_MMSE$V_dat = str_split(data_718_MMSE$V_dat," ",simplify = TRUE)[,1]
+```
+
+
+# general data clean 
+```{r,include=FALSE}
+# MRI phenotypes
+names_CT <- c(names(Freesurfer_output_718)[165:198],names(Freesurfer_output_718)[202:235])
+names_Vol <- c(names(Freesurfer_output_718)[240:273],names(Freesurfer_output_718)[276:309])
+
+names_Sub_1<- c("Left-Thalamus","Left-Caudate","Left-Putamen","Left-Pallidum","Left-Hippocampus","Left-Amygdala",
+              "Left-Accumbens-area","Left-choroid-plexus",
+              "Right-Thalamus","Right-Caudate","Right-Putamen","Right-Pallidum","Right-Hippocampus","Right-Amygdala",
+              "Right-Accumbens-area","Right-choroid-plexus")
+names_Sub_2<- c("lh_Thalamus_volume","lh_Caudate_volume","lh_Putamen_volume","lh_Pallidum_volume","lh_Hippocampus_volume","lh_Amygdala_volume",
+              "lh_Accumbens_area_volume","lh_choroid_plexus_volume",
+              "rh_Thalamus_volume","rh_Caudate_volume","rh_Putamen_volume","rh_Pallidum_volume","rh_Hippocampus_volume","rh_Amygdala_volume",
+              "rh_Accumbens_area_volume","rh_choroid_plexus_volume")
+names_eTIV <- c("EstimatedTotalIntraCranialVol")
+MRI_IDPs = c(names_CT,names_Vol,names_Sub_1,names_eTIV)
+
+
+data_718_MRI_v00 <- data_718_MRI %>% 
+  filter(!(MRI_ID == "NULL" | is.na(M_dat)))
+
+data_718_MRI_v0 <- Freesurfer_output_718 %>% 
+  select(MRI_ID,I_ID,ManufacturersModelName,MagneticFieldStrength,MRI_IDPs) %>%
+  mutate(MRI_ID = str_split(MRI_ID,"sub-",simplify = TRUE)[,2]) %>%
+  inner_join(data_718_MRI_v00[,c("MRI_ID","M_dat","M_age","M_scan","M_quality","M_Fazekas")],by = "MRI_ID") %>%
+  mutate(M_dat = ymd(M_dat)) %>%
+  mutate(I_ID = as.numeric(I_ID)) %>%
+  filter(!if_any(all_of(c(MRI_IDPs)), is.na)) %>%
+  
+  group_by(ManufacturersModelName) %>%
+  filter(n() >= 20) %>%
+  ungroup() %>%
+  
+  filter(!is.na(I_ID) & !is.na(M_dat)) %>%
+  
+  mutate(MagneticFieldStrength = case_when(
+    MagneticFieldStrength == 0.95007 ~ 1,
+    MagneticFieldStrength == 1.494 ~ 1.5,
+    MagneticFieldStrength == 1.5 ~ 1.5,
+    MagneticFieldStrength == 3 ~ 3
+  )) %>%
+  filter(!(ManufacturersModelName == "SIGNA HDx" & MagneticFieldStrength == 1.5))
+
+
+data_718_Baseline_v0 <- data_718_Baseline %>% mutate(I_dat_1 = ymd(I_dat_1)) %>%
+  filter(!I_sex == "NULL" & !I_edu_VE == "NULL") %>%
+  mutate(APOE_status = case_when(
+    APOE %in% c("E2E4","E3E4","E4E4")~"e4-carrier",
+    APOE %in% c("E2E2","E2E3","E3E3")~"e4-non-carrier",
+    APOE == c("NULL")~"Missing",
+  )) %>%
+  mutate(Edu = case_when(
+    I_edu_VE == 1 ~ 5,
+    I_edu_VE == 2 ~ 6,
+    I_edu_VE == 3 ~ 8,
+    I_edu_VE == 4 ~ 9,
+    I_edu_VE == 5 ~ 10,
+    I_edu_VE == 6 ~ 13,
+    I_edu_VE == 7 ~ 17
+  )) %>%
+  mutate(Sex = if_else(I_sex %in% c("M","m"),"m","f")) %>%
+  mutate(Sex = factor(Sex,c("m","f"))) %>%
+  select(I_ID,Sex,Edu,APOE_status)
+
+
+data_718_Diagnosis_v0 <- data_718_Diagnosis %>% 
+  mutate(D_dat = ymd(D_dat)) %>%
+  #filter(diagnoseOms %in% c("Subjectieve klachten","MCI","Possible AD","Probable AD","FTD","DLB")) %>%
+  mutate(D_diagnosis = case_when(
+  diagnoseOms == "Subjectieve klachten"~"SCD",
+  diagnoseOms == "MCI"~"MCI",
+  diagnoseOms == "Probable AD"~"AD",
+  diagnoseOms == "FTD"~"FTD",
+  diagnoseOms == "DLB"~"DLB",
+  TRUE ~ diagnoseOms,
+))
+
+
+data_718_CSF_v0 <- data_718_CSF %>% 
+  mutate(L_DATEAFN = ymd(L_DATEAFN)) %>%
+  filter(!L_AB42_corr == "NULL" | !L_AB42_Elecsys == "NULL") %>%
+  mutate(ATN_AB = case_when(is.na(L_AB42_corr) & is.na(L_AB42_Elecsys) ~ NA,
+                            L_AB42_Elecsys < 1000 & !is.na(L_AB42_Elecsys) ~ "A+",
+                            L_AB42_Elecsys >= 1000 & !is.na(L_AB42_Elecsys) ~ "A-",
+                            L_AB42_corr < 813 & is.na(L_AB42_Elecsys) ~ "A+",
+                            L_AB42_corr >= 813 & is.na(L_AB42_Elecsys) ~ "A-")) %>%
+  mutate(across(c("L_AB42_Elecsys","L_AB42_corr","L_TAU_Elecsys","L_TAU","L_PTAU_Elecsys","L_PTAU"), as.numeric)) %>%
+  mutate(L_AB42_norm = ifelse(!is.na(L_AB42_Elecsys), L_AB42_Elecsys, (-365 + 1.87 * L_AB42_corr)), 
+         L_TAU_norm = ifelse(!is.na(L_TAU_Elecsys), L_TAU_Elecsys, (-365 + 1.87 * L_TAU)), 
+         L_PTAU_norm = ifelse(!is.na(L_PTAU_Elecsys), L_PTAU_Elecsys, -3.9 + 0.44 * L_PTAU)) %>%
+  filter(!if_any(all_of(c("L_AB42_norm","L_TAU_norm","L_PTAU_norm")), is.na))
+  
+
+data_718_PET_v0 <- data_718_PET %>% mutate(PT_date = ymd(PT_date)) %>% 
+  filter(!is.na(PT_result_amyloid))
+
+
+data_718_NPO_v0 <- data_718_NPO %>% 
+  mutate(N_date = ymd(N_date)) %>% 
+  mutate(across(where(is.character), ~na_if(., "NULL"))) %>%
+  mutate(across(starts_with("N_") & !any_of(c("N_date", "N_age")), as.numeric)) %>%
+  mutate(across(
+    starts_with("N_") & !any_of(c("N_date", "N_age")), 
+    ~ifelse(. >= 997, NA, .)))
+  
+data_718_MMSE_v0 <- data_718_MMSE %>% mutate(V_dat = ymd(V_dat)) %>% mutate(V_MMSE = as.numeric(V_MMSE)) %>% filter(!is.na(V_MMSE))
+```
+
+
+# Main Data Selection
+```{r}
+############################## harmonize CSF and PET the "bind_rows" later ############################## 
+data_718_CSF_v1 <- data_718_CSF_v0 %>% select(I_ID,L_DATEAFN,CSF_A,L_age) %>%
+  rename(amyloid_DATEAFN = L_DATEAFN,amyloid_status = CSF_A) %>%
+  mutate(amyloid_source = "CSF")
+
+data_718_PET_v1 <- data_718_PET_v0 %>% select(I_ID,PT_date,PT_result_amyloid) %>%
+  rename(amyloid_DATEAFN = PT_date,amyloid_status = PT_result_amyloid) %>%
+  mutate(amyloid_status = if_else(amyloid_status %in% c("positief","Positief"),"A+","A-")) %>%
+  mutate(amyloid_source = "PET")
+
+
+############################## data selection based on CSF ############################## 
+data_718_CSF_unique <- data_718_CSF_v1 %>% 
+  
+  inner_join(data_718_Baseline_v0,by = "I_ID",relationship = "many-to-many") %>% 
+  
+  inner_join(data_718_MRI_v0,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_M_raw = difftime(amyloid_DATEAFN,M_dat,units ="days"),diff_L_M = abs(diff_L_M_raw),relationship = "many-to-many") %>%
+  
+  inner_join(data_718_NPO_v0,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_N_raw = difftime(amyloid_DATEAFN,N_date,units ="days"),diff_L_N = abs(diff_L_N_raw),relationship = "many-to-many") %>%
+  
+  inner_join(data_718_Diagnosis_v0,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_D = difftime(D_dat,amyloid_DATEAFN,units ="days"),relationship = "many-to-many") %>% 
+  
+  inner_join(data_718_MMSE,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_V_raw = difftime(amyloid_DATEAFN,V_dat,units ="days"),diff_L_V = abs(diff_L_V_raw),relationship = "many-to-many") %>%
+  
+  filter((abs(diff_L_M) <= 365 & abs(diff_L_N) <= 365) & abs(diff_L_D) <= 365 & abs(diff_L_V) <= 365) %>%
+  
+  group_by(I_ID) %>%
+  filter(diff_L_D == max(diff_L_D)) %>%
+  arrange(diff_L_M,diff_L_N,diff_L_V) %>%
+  slice(1) %>%
+  ungroup()
+
+
+##############################  data selection based on PET ############################## 
+data_718_PET_unique <- data_718_PET_v1 %>% 
+  
+  inner_join(data_718_Baseline_v0,by = "I_ID",relationship = "many-to-many") %>% 
+  
+  inner_join(data_718_MRI_v0,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_M_raw = difftime(amyloid_DATEAFN,M_dat,units ="days"),diff_L_M = abs(diff_L_M_raw),relationship = "many-to-many") %>%
+  
+  inner_join(data_718_NPO_v0,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_N_raw = difftime(amyloid_DATEAFN,N_date,units ="days"),diff_L_N = abs(diff_L_N_raw),relationship = "many-to-many") %>%
+  
+  inner_join(data_718_Diagnosis_v0,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_D = difftime(D_dat,amyloid_DATEAFN,units ="days"),relationship = "many-to-many") %>% 
+  
+  inner_join(data_718_MMSE,by = "I_ID",relationship = "many-to-many") %>%
+  mutate(diff_L_V_raw = difftime(amyloid_DATEAFN,V_dat,units ="days"),diff_L_V = abs(diff_L_V_raw),relationship = "many-to-many") %>%
+  
+  filter((abs(diff_L_M) <= 365 & abs(diff_L_N) <= 365) & abs(diff_L_D) <= 365 & abs(diff_L_V) <= 365) %>%
+  
+  group_by(I_ID) %>%
+  filter(diff_L_D == max(diff_L_D)) %>%
+  arrange(diff_L_M,diff_L_N,diff_L_V) %>%
+  slice(1) %>%
+  ungroup()
+
+
+############################## bind_rows two DF based on rules: PET first ############################## 
+data_ADC_analysis <- bind_rows(data_718_PET_unique,data_718_CSF_unique) %>%
+  group_by(I_ID) %>%
+  filter(!(amyloid_source == "CSF" & any(amyloid_source == "PET"))) %>%
+  ungroup() %>%
+  arrange(I_ID,amyloid_DATEAFN) %>%
+  filter(D_diagnosis %in% c("SCD","AD","DLB","FTD")) %>%
+  filter(!(D_diagnosis == "SCD"& amyloid_status == "A+")) %>%
+  filter(!(D_diagnosis == "AD"& amyloid_status == "A-")) %>%
+  mutate(amyloid_age = if_else(
+    amyloid_source == "PET", M_age + round(as.numeric(difftime(amyloid_DATEAFN,M_dat,units ="days"))/365,2),L_age))
+
+
+dim(data_ADC_analysis)
+table(data_ADC_analysis$D_diagnosis,data_ADC_analysis$amyloid_status)
+data_ADC_analysis_dip <- data_ADC_analysis %>% filter(I_ID %in% data_ADC_analysis$I_ID[duplicated(data_ADC_analysis$I_ID)])
+```
+
+
+
+# MRI data preprocessing: correct for scanner effects: # categorical amyloid
+```{r}
+# MRI phenotypes
+names_CT <- c(names(Freesurfer_output_718)[165:198],names(Freesurfer_output_718)[202:235])
+names_Vol <- c(names(Freesurfer_output_718)[240:273],names(Freesurfer_output_718)[276:309])
+
+names_Sub_1<- c("Left-Thalamus","Left-Caudate","Left-Putamen","Left-Pallidum","Left-Hippocampus","Left-Amygdala",
+              "Left-Accumbens-area","Left-choroid-plexus",
+              "Right-Thalamus","Right-Caudate","Right-Putamen","Right-Pallidum","Right-Hippocampus","Right-Amygdala",
+              "Right-Accumbens-area","Right-choroid-plexus")
+names_Sub_2<- c("lh_Thalamus_volume","lh_Caudate_volume","lh_Putamen_volume","lh_Pallidum_volume","lh_Hippocampus_volume","lh_Amygdala_volume",
+              "lh_Accumbens_area_volume","lh_choroid_plexus_volume",
+              "rh_Thalamus_volume","rh_Caudate_volume","rh_Putamen_volume","rh_Pallidum_volume","rh_Hippocampus_volume","rh_Amygdala_volume",
+              "rh_Accumbens_area_volume","rh_choroid_plexus_volume")
+names_eTIV <- c("EstimatedTotalIntraCranialVol")
+MRI_IDPs = c(names_CT,names_Vol,names_Sub_1,names_eTIV)
+MRI_IDPs_after = c(names_CT,names_Vol,names_Sub_2,"eTIV")
+
+################################## correction scanner * sites
+data_ADC_analysis_MRI <- data_ADC_analysis %>%
+  select(MRI_ID, M_age, Sex, Edu, D_diagnosis,amyloid_status,ManufacturersModelName, MagneticFieldStrength,EstimatedTotalIntraCranialVol,all_of(MRI_IDPs)) %>% 
+  rename(Scanner = ManufacturersModelName, Field_Strength = MagneticFieldStrength) %>%
+  mutate(eTIV = EstimatedTotalIntraCranialVol)
+
+clindata_path_data = data_ADC_analysis_MRI[,c("MRI_ID","M_age","Sex","Edu","D_diagnosis","amyloid_status")]
+mridata_path_data = data_ADC_analysis_MRI
+
+writexl::write_xlsx(clindata_path_data,"/Users/jiangxiaofan/Desktop/projects/project_ADC_mega_copathology/data/MRI_scanner/clindata_path_data.xlsx")
+writexl::write_xlsx(mridata_path_data,"/Users/jiangxiaofan/Desktop/projects/project_ADC_mega_copathology/data/MRI_scanner/mridata_path_data.xlsx")
+
+# python /Users/jiangxiaofan/Desktop/projects/project_ADC_mega_copathology/scripts/combat_ADC_mega.py
+
+
+data_ADC_analysis_MRI_filtered = read_xlsx("/Users/jiangxiaofan/Desktop/projects/project_ADC_mega_copathology/data/MRI_scanner/final_23_June2025.xlsx")
+
+
+data_ADC_analysis_v1 <- data_ADC_analysis %>% 
+  select(-all_of(c(names_CT,names_Vol,names_Sub_1,names_eTIV))) %>%
+  left_join(data_ADC_analysis_MRI_filtered[,c("MRI_ID",c(names_CT,names_Vol,names_Sub_1,"eTIV"))],by = c("MRI_ID")) %>%
+  rename_with(.cols = all_of(names_Sub_1),
+              .fn = ~ str_replace_all(., "-", "_")) %>%
+  rename_with(.cols = starts_with("Left_"),
+              .fn = ~ str_replace_all(., "Left_", "lh_") %>% paste0("_volume")) %>%
+  rename_with(.cols = starts_with("Right_"),
+              .fn = ~ str_replace_all(., "Right_", "rh_") %>% paste0("_volume")) %>%
+  
+  mutate(across(starts_with("lh_"), 
+                .fns = list(mean = ~ ( . + get(sub("lh_", "rh_", cur_column())) ) / 2), 
+                .names = "{sub('lh_', '', .col)}_mean")) %>% 
+  mutate(across(starts_with("Left."), 
+                .fns = list(mean = ~ ( . + get(sub("Left.", "Right.", cur_column())) ) / 2), 
+                .names = "{sub('Left.', '', .col)}_mean")) %>%
+  
+  ### scaling
+  mutate(across(all_of(c(names_CT,names_Vol,names_Sub_2,"eTIV")), scale)) %>%
+  mutate(across(ends_with("_mean"), scale))
+  #mutate(across(all_of(c("L_AB42_norm", "L_TAU_norm", "L_PTAU_norm")),~ as.numeric(scale(.x)),.names = "{.col}_z"))
+
+
+#save(data_ADC_analysis_v1,MRI_IDPs_after,file="/Users/jiangxiaofan/Desktop/projects/project_ADC_mega_copathology/data/data_analysis_ready_atrophy_14July2025.RData")
+```
+
+
+
+
+#!!!!!!!!!!!!!! Check 1: whether the covariate will change the MRI measurements
+```{r}
+clindata_path_data = data_ADC_analysis_MRI[,c("MRI_ID","M_age","Sex","Edu","D_diagnosis")]
+mridata_path_data = data_ADC_analysis_MRI
+
+writexl::write_xlsx(clindata_path_data,"/Users/jiangxiaofan/Desktop/projects/project_ADC_mega_copathology/data/MRI_scanner/clindata_path_data_check.xlsx")
+writexl::write_xlsx(mridata_path_data,"/Users/jiangxiaofan/Desktop/projects/project_ADC_mega_copathology/data/MRI_scanner/mridata_path_data_check.xlsx")
+
+# python /Users/jiangxiaofan/Desktop/projects/project_ADC_mega_copathology/scripts/combat_ADC_mega_check.py
+
+data_ADC_analysis_MRI_filtered = read_xlsx("/Users/jiangxiaofan/Desktop/projects/project_ADC_mega_copathology/data/MRI_scanner/final_23_June2025_check.xlsx")
+data_ADC_analysis_v1_check <- data_ADC_analysis %>% 
+  select(-all_of(c(names_CT,names_Vol,names_Sub_1,names_eTIV))) %>%
+  left_join(data_ADC_analysis_MRI_filtered[,c("MRI_ID",c(names_CT,names_Vol,names_Sub_1,"eTIV"))],by = c("MRI_ID")) %>%
+  rename_with(.cols = all_of(names_Sub_1),
+              .fn = ~ str_replace_all(., "-", "_")) %>%
+  rename_with(.cols = starts_with("Left_"),
+              .fn = ~ str_replace_all(., "Left_", "lh_") %>% paste0("_volume")) %>%
+  rename_with(.cols = starts_with("Right_"),
+              .fn = ~ str_replace_all(., "Right_", "rh_") %>% paste0("_volume")) %>%
+  
+  mutate(across(starts_with("lh_"), 
+                .fns = list(mean = ~ ( . + get(sub("lh_", "rh_", cur_column())) ) / 2), 
+                .names = "{sub('lh_', '', .col)}_mean")) %>% 
+  mutate(across(starts_with("Left."), 
+                .fns = list(mean = ~ ( . + get(sub("Left.", "Right.", cur_column())) ) / 2), 
+                .names = "{sub('Left.', '', .col)}_mean")) %>%
+  
+  ### scaling
+  mutate(across(all_of(c(names_CT,names_Vol,names_Sub_2,"eTIV")), scale)) %>%
+  mutate(across(ends_with("_mean"), scale))
+
+all(data_ADC_analysis_v1$I_ID == data_ADC_analysis_v1_check$I_ID)
+
+
+
+
+# 1. Combine your variable lists
+vars <- c(names_CT, names_Vol)
+
+# 2. Run cor.test() on each variable pair and collect results
+res_list <- lapply(vars, function(v) {
+  test <- cor.test(
+    x = data_ADC_analysis_v1[[v]],
+    y = data_ADC_analysis[[v]],
+    use = "complete.obs"   # or "pairwise" if you want pairwise deletion
+  )
+  data.frame(
+    variable   = v,
+    estimate   = unname(test$estimate),
+    p.value    = test$p.value,
+    conf.low   = test$conf.int[1],
+    conf.high  = test$conf.int[2],
+    stringsAsFactors = FALSE
+  )
+})
+
+# 3. Bind into one data.frame
+results_df <- do.call(rbind, res_list)
+
+# 4. Inspect
+print(results_df)
+
+
+
+model0 = glm("lh_middletemporal_thickness ~ amyloid_status+D_diagnosis+Sex+Edu+ManufacturersModelName+MagneticFieldStrength",
+             family = gaussian,
+             data = data_ADC_analysis[data_ADC_analysis$D_diagnosis %in% c("FTD","DLB"),])
+model1 = glm("lh_middletemporal_thickness ~ amyloid_status+D_diagnosis+Sex+Edu+ManufacturersModelName+MagneticFieldStrength",family = gaussian,
+             data = data_ADC_analysis_v1[data_ADC_analysis_v1$D_diagnosis %in% c("FTD","DLB"),])
+model2 = glm("lh_middletemporal_thickness ~ amyloid_status+D_diagnosis+Sex+Edu+ManufacturersModelName+MagneticFieldStrength",family = gaussian,
+             data = data_ADC_analysis_v1_check[data_ADC_analysis_v1_check$D_diagnosis %in% c("FTD","DLB"),])
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+
