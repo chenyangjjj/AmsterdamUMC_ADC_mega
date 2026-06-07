@@ -1,2 +1,2 @@
 # AmsterdamUMC_ADC_mega
-manuscript "Clinical symptoms of most common dementia types show distinct and shared neuroanatomical atrophy patterns in large memory clinical cohort"
+manuscript "Amyloid Co-Pathology modifies Cognition and Atrophy in Frontotemporal Dementia and Dementia with Lewy bodies"
